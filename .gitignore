@@ -26,6 +26,8 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
+.eggs/
 
 # Seeds with real business data (structure only is committed)
 seeds/**/*.local.json

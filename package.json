@@ -1,0 +1,27 @@
+{
+  "name": "founder-operating-system",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Agentic operating system for a solo founder running a portfolio of products",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "db:generate": "npm run generate -w @fos/db",
+    "db:migrate": "npm run migrate -w @fos/db"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
