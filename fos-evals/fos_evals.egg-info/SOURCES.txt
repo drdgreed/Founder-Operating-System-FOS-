@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+fos_evals/__init__.py
+fos_evals/runner.py
+fos_evals.egg-info/PKG-INFO
+fos_evals.egg-info/SOURCES.txt
+fos_evals.egg-info/dependency_links.txt
+fos_evals.egg-info/requires.txt
+fos_evals.egg-info/top_level.txt
+tests/test_smoke.py

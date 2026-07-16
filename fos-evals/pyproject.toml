@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "fos-evals"
 version = "0.0.0"
@@ -7,6 +11,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8"]
+
+[tool.setuptools]
+packages = ["fos_evals"]
 
 [tool.ruff]
 line-length = 100
