@@ -5,8 +5,10 @@
  *   product, fos_workspace, person, enrollment_opportunity,
  *   application_submission, operational_event
  * with append-only enforcement on operational_event (PATCH-SET-01 §S1, §B0).
- *
- * Empty for now so `drizzle-kit generate` produces no migration until the
- * first tables exist.
  */
-export {};
+export * from "./fos_workspace.js";
+export * from "./product.js";
+export * from "./person.js";
+export * from "./enrollment_opportunity.js";
+export * from "./application_submission.js";
+export * from "./operational_event.js";

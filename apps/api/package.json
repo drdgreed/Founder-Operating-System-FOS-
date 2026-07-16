@@ -1,0 +1,22 @@
+{
+  "name": "@fos/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "next dev",
+    "build": "next build"
+  },
+  "dependencies": {
+    "@fos/contracts": "*",
+    "@fos/db": "*",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "typescript": "^5.6.3"
+  }
+}
