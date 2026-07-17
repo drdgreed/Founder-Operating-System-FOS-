@@ -226,4 +226,39 @@ describe("approval service — recordApprovalDecision (spec §9.14, §E2, §12.2
       .where(eq(artifactVersion.id, version.id));
     expect(v!.approvalStatus).toBe("in_review");
   });
+
+  it("FOS0-APV-11: audit lineage — the two events share ONE correlation_id AND artifact.approved is caused-by approval.recorded (decision → transition, PATCH-SET-03 §B)", async () => {
+    const { version } = await seedInReview();
+
+    const result = await recordApprovalDecision(ctx.db, {
+      artifactVersionId: version.id,
+      decision: "approved",
+      riskLevel: "low",
+      actor: ACTOR,
+    });
+
+    const events = await ctx.db.select().from(operationalEvent);
+    expect(events).toHaveLength(2);
+
+    const approvalEvent = events.find(
+      (e: typeof operationalEvent.$inferSelect) => e.type === "approval.recorded",
+    )!;
+    const artifactEvent = events.find(
+      (e: typeof operationalEvent.$inferSelect) => e.type === "artifact.approved",
+    )!;
+    expect(approvalEvent).toBeDefined();
+    expect(artifactEvent).toBeDefined();
+
+    // (a) shared correlation_id — one operation.
+    expect(approvalEvent.correlationId).toBe(artifactEvent.correlationId);
+    expect(result.correlationId).toBe(approvalEvent.correlationId);
+
+    // (b) causation direction: the DECISION causes the TRANSITION.
+    // artifact.approved.causation_id === approval.recorded.id (effect points at cause).
+    expect(artifactEvent.causationId).toBe(approvalEvent.id);
+    // The decision fact is the root of this operation's causal chain.
+    expect(approvalEvent.causationId).toBeNull();
+    // Explicitly assert the direction is NOT inverted.
+    expect(approvalEvent.causationId).not.toBe(artifactEvent.id);
+  });
 });

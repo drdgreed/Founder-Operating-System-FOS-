@@ -178,6 +178,14 @@ export interface TransitionArtifactVersionInput {
   actor: EventActor;
   source?: string;
   causationId?: string | null;
+  /**
+   * Optional correlation_id for the emitted event (PATCH-SET-03 §B). When a
+   * caller drives this transition as part of a larger operation (e.g. an
+   * approval decision), it passes the operation's correlation_id so all events
+   * share one. Backward-compatible: minted per-call when absent, as 0.1b
+   * callers rely on.
+   */
+  correlationId?: string;
 }
 
 export interface TransitionArtifactVersionResult {
@@ -276,7 +284,7 @@ export async function transitionArtifactVersionStatus(
       entityType: "ArtifactVersion",
       entityId: input.versionId,
       source: input.source ?? "api",
-      correlationId: randomUUID(),
+      correlationId: input.correlationId ?? randomUUID(),
       causationId: input.causationId ?? null,
       actor: input.actor,
       // §A: the single named event for this exact edge.

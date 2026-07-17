@@ -58,6 +58,16 @@ export interface RecordApprovalDecisionInput {
    * value to force an optimistic rejection (whole decision rolls back).
    */
   expectedStatus?: ArtifactStatus;
+  /**
+   * Optional correlation_id for the operation (PATCH-SET-03 §B). Minted when
+   * absent; both emitted events share it.
+   */
+  correlationId?: string;
+  /**
+   * Optional prior cause. When set, it becomes `approval.recorded.causation_id`
+   * (the decision was itself caused by an upstream event).
+   */
+  causationId?: string | null;
 }
 
 export interface RecordApprovalDecisionResult {
@@ -66,6 +76,8 @@ export interface RecordApprovalDecisionResult {
   artifactId: string;
   decision: ApprovalDecision;
   status: ArtifactStatus;
+  /** The shared correlation_id of both emitted events (§B). */
+  correlationId: string;
   approvalEventId: string;
   artifactEventId: string;
 }
@@ -76,14 +88,21 @@ export interface RecordApprovalDecisionResult {
  *   1. Guard: the version must be decidable (`in_review`, §12.2). Otherwise
  *      reject — no Approval row, no events.
  *   2. Insert the Approval record (the decided value).
- *   3. Drive the version's `approval_status` via the §E2 map by REUSING
+ *   3. Emit `approval.recorded` FIRST — the decision fact and the CAUSE of the
+ *      lifecycle transition (PATCH-SET-03 §A/§B).
+ *   4. Drive the version's `approval_status` via the §E2 map by REUSING
  *      `transitionArtifactVersionStatus` (emits the granular artifact event,
  *      syncs the ArtifactRecord.status mirror, CAS-guards on the expected
  *      status). The transition is NOT re-implemented here.
- *   4. Emit `approval.recorded` (see the §9.7/§S1 gap flagged in @fos/contracts).
+ *
+ * Audit lineage (PATCH-SET-03 §B): both events share ONE `correlation_id`, and
+ * the transition's event is CAUSED BY `approval.recorded` (its `causation_id` =
+ * the approval event id). `approval.recorded.causation_id` is null unless the
+ * caller supplies an upstream cause.
  *
  * Atomicity: because every step runs in the outer transaction, if the
- * transition throws (illegal/stale) the Approval insert rolls back too.
+ * transition throws (illegal/stale) the Approval insert AND the
+ * `approval.recorded` write roll back too.
  *
  * DEFERRED (not implemented; flagged): the §14.5 deterministic claims/consent
  * validation — ProductClaim/consent entities do not exist yet; they wire in a
@@ -124,22 +143,20 @@ export async function recordApprovalDecision(
       })
       .returning();
 
-    // REUSE the 0.1b transition — emits the granular artifact event, syncs the
-    // record mirror, and CAS-guards on the expected (decidable) status.
-    const transition = await transitionArtifactVersionStatus(tx, {
-      versionId: input.artifactVersionId,
-      expectedStatus: input.expectedStatus ?? DECIDABLE_STATUS,
-      toStatus,
-      actor: input.actor,
-    });
+    // ONE correlation_id for the whole operation (PATCH-SET-03 §B): both the
+    // decision fact and its driven transition share it.
+    const correlationId = input.correlationId ?? randomUUID();
 
+    // Emit the decision fact FIRST (PATCH-SET-03 §B): the recorded decision is
+    // the CAUSE of the lifecycle transition. `approval.recorded.causation_id`
+    // is null unless a caller supplies a prior cause.
     const approvalEvent = await writeEvent(tx, {
       workspaceId: version.workspaceId,
       entityType: "Approval",
       entityId: approvalRow.id,
       source: "api",
-      correlationId: randomUUID(),
-      causationId: transition.eventId,
+      correlationId,
+      causationId: input.causationId ?? null,
       actor: input.actor,
       type: "approval.recorded",
       payload: {
@@ -150,12 +167,25 @@ export async function recordApprovalDecision(
       },
     });
 
+    // REUSE the 0.1b transition — emits the granular artifact event, syncs the
+    // record mirror, and CAS-guards on the expected (decidable) status. It
+    // shares the operation's correlation_id and is CAUSED BY approval.recorded.
+    const transition = await transitionArtifactVersionStatus(tx, {
+      versionId: input.artifactVersionId,
+      expectedStatus: input.expectedStatus ?? DECIDABLE_STATUS,
+      toStatus,
+      actor: input.actor,
+      correlationId,
+      causationId: approvalEvent.id,
+    });
+
     return {
       approvalId: approvalRow.id,
       artifactVersionId: input.artifactVersionId,
       artifactId: transition.artifactId,
       decision: input.decision,
       status: toStatus,
+      correlationId,
       approvalEventId: approvalEvent.id,
       artifactEventId: transition.eventId,
     };

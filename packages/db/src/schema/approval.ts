@@ -10,18 +10,28 @@ import { artifactVersion } from "./artifact_version.js";
  *   in the approval service).
  * - §S2: `risk_level` is low | medium | high.
  *
- * This slice (0.1c) implements the decision-recording columns. §9.14's
- * polymorphic target (`target_entity_type` / `target_entity_id` /
- * `target_version_id`) is collapsed to a typed FK `artifact_version_id` —
- * approvals in this slice are always on an ArtifactVersion. Deferred §9.14
- * fields (`approval_type`, `requested_by_type/_id`, `summary`, `requested_at`,
- * `original_snapshot_json`, `final_snapshot_json`) land with the slices that
- * populate them; the `pending`/`expired`/`superseded` states exist in the enum
- * (full §9.14 set) but are not written by this slice's service.
+ * Decision-only scope ratified by PATCH-SET-03 §C:
+ * - `decided_by` / `decided_at` are NOT NULL — this slice records only DECIDED
+ *   approvals (no `pending` rows). The later approval-request slice (§14.6/
+ *   §15.7 "request approval", `pending` state) is the disclosed forward
+ *   migration that relaxes these to nullable.
+ * - The §9.14 polymorphic target (`target_entity_type` / `target_entity_id` /
+ *   `target_version_id`) is collapsed to a single typed FK `artifact_version_id`
+ *   — approvals in this slice are always on an ArtifactVersion; the same forward
+ *   migration generalizes the target.
+ * - The `approval_status` enum carries the full §9.14 set, but the service
+ *   writes only the 4 in_review-reachable decisions (approved,
+ *   approved_with_edits, rejected, deferred). `superseded` is EXCLUDED as a
+ *   decidable outcome because `in_review → superseded` is not a legal §12.2
+ *   edge; `pending`/`expired` are unused this slice.
+ *
+ * Deferred §9.14 fields (`approval_type`, `requested_by_type/_id`, `summary`,
+ * `requested_at`, `original_snapshot_json`, `final_snapshot_json`) land with the
+ * slices that populate them.
  */
 
 // Full §9.14 approval-state set. The service writes only the decision subset
-// {approved, approved_with_edits, rejected, deferred}.
+// {approved, approved_with_edits, rejected, deferred} (PATCH-SET-03 §C).
 export const approvalStatusEnum = pgEnum("approval_status", [
   "pending",
   "approved",
