@@ -5,5 +5,5 @@
     "types": ["node"],
     "jsx": "preserve"
   },
-  "include": ["app"]
+  "include": ["app", "lib", "test"]
 }
