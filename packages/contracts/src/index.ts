@@ -119,17 +119,63 @@ export const ARTIFACT_EVENT_PAYLOAD_SCHEMAS = {
 export type ArtifactEventType = keyof typeof ARTIFACT_EVENT_PAYLOAD_SCHEMAS;
 
 /**
+ * Approval event payload registry (slice 0.1c, §S1 discipline).
+ *
+ * GAP FLAG: spec §9.7 enumerates NO `approval.*` event for the recording of an
+ * Approval decision (its approval-related events are all `artifact.*` version
+ * lifecycle events). `approval.recorded` is introduced here to give the §9.14
+ * decision its own audit event, registered per §S1. This is a §9.7/§S1 gap
+ * surfaced for ratification (PATCH-SET-03 candidate), mirroring the 0.1b
+ * artifact-taxonomy gap — not an invented business fact.
+ */
+export const approvalDecisionValues = [
+  "approved",
+  "approved_with_edits",
+  "rejected",
+  "deferred",
+] as const;
+
+const approvalRecordedPayloadSchema = z
+  .object({
+    approvalId: z.string().uuid(),
+    artifactVersionId: z.string().uuid(),
+    decision: z.enum(approvalDecisionValues),
+    riskLevel: z.enum(["low", "medium", "high"]),
+  })
+  .strict();
+
+/** Registry: approval event `type` → payload schema (slice 0.1c). */
+export const APPROVAL_EVENT_PAYLOAD_SCHEMAS = {
+  "approval.recorded": approvalRecordedPayloadSchema,
+} as const satisfies Record<string, z.ZodTypeAny>;
+
+export type ApprovalEventType = keyof typeof APPROVAL_EVENT_PAYLOAD_SCHEMAS;
+
+/**
  * Validates an event `payload` against its registered schema on the write
- * path. Scope (PATCH-SET-02 §C): only `artifact.*` types are registered here.
- * - non-`artifact.*` type → pass (governed by another slice)
- * - `artifact.*` with no registered schema → throw (unregistered type)
- * - `artifact.*` with a malformed payload → throw (ZodError)
+ * path (PATCH-SET-02 §C / §S1). Registered domains: `artifact.*` and
+ * `approval.*`.
+ * - unregistered domain prefix → pass (governed by another slice)
+ * - registered prefix, no schema for the exact type → throw (unregistered type)
+ * - registered type with a malformed payload → throw (ZodError)
  */
 export function validateEventPayload(type: string, payload: unknown): void {
-  if (!type.startsWith("artifact.")) return;
-  const schema = (ARTIFACT_EVENT_PAYLOAD_SCHEMAS as Record<string, z.ZodTypeAny>)[type];
-  if (!schema) {
-    throw new Error(`Unregistered artifact event type: ${type}`);
+  if (type.startsWith("artifact.")) {
+    const schema = (ARTIFACT_EVENT_PAYLOAD_SCHEMAS as Record<string, z.ZodTypeAny>)[type];
+    if (!schema) {
+      throw new Error(`Unregistered artifact event type: ${type}`);
+    }
+    schema.parse(payload);
+    return;
   }
-  schema.parse(payload);
+  if (type.startsWith("approval.")) {
+    const schema = (APPROVAL_EVENT_PAYLOAD_SCHEMAS as Record<string, z.ZodTypeAny>)[type];
+    if (!schema) {
+      throw new Error(`Unregistered approval event type: ${type}`);
+    }
+    schema.parse(payload);
+    return;
+  }
+  // Other domains are not registered here; they pass through until their slice
+  // registers schemas.
 }

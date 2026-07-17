@@ -119,3 +119,52 @@ describe("validateEventPayload — artifact payload registry (PATCH-SET-02 §C)"
     ).toThrow();
   });
 });
+
+describe("validateEventPayload — approval payload registry (slice 0.1c, §S1)", () => {
+  const approvalId = "00000000-0000-0000-0000-0000000000c3";
+  const versionId = "00000000-0000-0000-0000-0000000000d4";
+
+  it("FOS0-APV-08: accepts a well-formed approval.recorded payload", () => {
+    expect(() =>
+      validateEventPayload("approval.recorded", {
+        approvalId,
+        artifactVersionId: versionId,
+        decision: "approved",
+        riskLevel: "high",
+      }),
+    ).not.toThrow();
+  });
+
+  it("FOS0-APV-09: rejects a malformed approval.recorded payload (bad decision / missing field / extra key)", () => {
+    expect(() =>
+      validateEventPayload("approval.recorded", {
+        approvalId,
+        artifactVersionId: versionId,
+        decision: "not_a_decision",
+        riskLevel: "high",
+      }),
+    ).toThrow();
+    expect(() =>
+      validateEventPayload("approval.recorded", {
+        approvalId,
+        artifactVersionId: versionId,
+        decision: "approved",
+      }),
+    ).toThrow();
+    expect(() =>
+      validateEventPayload("approval.recorded", {
+        approvalId,
+        artifactVersionId: versionId,
+        decision: "approved",
+        riskLevel: "low",
+        extra: "x",
+      }),
+    ).toThrow();
+  });
+
+  it("FOS0-APV-10: rejects an unregistered approval.* event type", () => {
+    expect(() => validateEventPayload("approval.frobnicated", { any: "thing" })).toThrow(
+      /unregistered approval event type/i,
+    );
+  });
+});

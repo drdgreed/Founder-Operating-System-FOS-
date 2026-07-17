@@ -43,6 +43,13 @@
       "when": 1784251991825,
       "tag": "0005_artifact_version_status_gated_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784304596500,
+      "tag": "0006_milky_sunfire",
+      "breakpoints": true
     }
   ]
 }
