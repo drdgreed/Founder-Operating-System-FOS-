@@ -3,4 +3,7 @@ dist
 .next
 coverage
 packages/db/migrations
+# Hand-authored prose/tables (specs, ADRs, plans) — not code; prettier line-wrapping adds no rendered-output value and only creates CI friction.
 docs/specs
+docs/decisions
+docs/planning
