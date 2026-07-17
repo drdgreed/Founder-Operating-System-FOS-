@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./services": "./src/services/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -15,10 +16,12 @@
     "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@fos/contracts": "*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
