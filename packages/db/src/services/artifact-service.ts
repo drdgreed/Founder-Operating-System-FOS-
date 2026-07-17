@@ -225,16 +225,20 @@ export async function transitionArtifactVersionStatus(
       throw new IllegalArtifactTransitionError(current, input.toStatus);
     }
 
-    // §B: lock content on the first exit from draft. `immutable_at` is
-    // set-once (only when currently null); the content trigger is gated on the
-    // row's current status, so a later re-open to draft does not re-lock.
-    const leavingDraftFirstTime = current === "draft" && version.immutableAt === null;
+    // §B (PATCH-SET-02, as amended): `immutable_at` reflects the CURRENT lock
+    // state. Set it on leaving draft (content locks); clear it on a
+    // revision-request re-open (in_review -> draft) where content is editable
+    // again. Invariant: immutable_at non-null iff approval_status <> 'draft'.
+    // The DB content trigger is gated on the row's current status; immutable_at
+    // tracks that state rather than a one-time stamp.
     const versionUpdate: Record<string, unknown> = {
       approvalStatus: input.toStatus,
       updatedAt: new Date(),
     };
-    if (leavingDraftFirstTime) {
+    if (current === "draft" && input.toStatus !== "draft") {
       versionUpdate.immutableAt = new Date();
+    } else if (input.toStatus === "draft") {
+      versionUpdate.immutableAt = null;
     }
 
     const updated = await tx

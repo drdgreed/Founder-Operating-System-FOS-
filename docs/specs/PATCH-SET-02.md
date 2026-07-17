@@ -32,7 +32,7 @@
 
 §9.13: "Approved or executed versions are immutable" + carries `immutable_at`. Ruling: content is **mutable while the version is in `draft`**, and **locks the moment it leaves `draft`**.
 - **In-place edit** of a `draft` version's `body_markdown` is permitted; `content_hash` is recomputed (§S3) and an `artifact.draft_edited` event is emitted `{ artifactId, versionId, previousContentHash, contentHash }`.
-- On the first transition **out of `draft`** (`draft → in_review` or `draft → superseded`), set `immutable_at = now()`; thereafter `body_markdown`/`content_hash` are immutable.
+- On a transition **out of `draft`** (`draft → in_review` / `draft → superseded`), set `immutable_at = now()` (content locks). On a revision-request **re-open** (`in_review → draft`), the version becomes editable again, so **clear `immutable_at = null`**. Invariant: `immutable_at` is non-null **iff** the version's content is currently locked (`approval_status <> 'draft'`).
 - The DB content-immutability trigger becomes **status-gated**: it RAISES on a change to `body_markdown`/`content_hash` only when the row's existing `approval_status <> 'draft'`. `approval_status`/`updated_at`/`immutable_at` remain mutable so lifecycle transitions work.
 - Post-approval content changes still go through **revision → new version** (§12.2), never mutation.
 

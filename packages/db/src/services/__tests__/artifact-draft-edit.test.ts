@@ -164,4 +164,45 @@ describe("in-place draft edit + status-gated locking (PATCH-SET-02 §B)", () => 
     expect(v!.approvalStatus).toBe("superseded");
     expect(v!.immutableAt).not.toBeNull();
   });
+
+  it("FOS0-ART-53: a revision-request re-open (in_review -> draft) clears immutable_at and re-enables in-place editing", async () => {
+    // Leave draft -> locks + stamps immutable_at.
+    await transitionArtifactVersionStatus(ctx.db, {
+      versionId,
+      expectedStatus: "draft",
+      toStatus: "in_review",
+      actor: ACTOR,
+    });
+    const [locked] = await ctx.db
+      .select()
+      .from(artifactVersion)
+      .where(eq(artifactVersion.id, versionId));
+    expect(locked!.immutableAt).not.toBeNull();
+
+    // Revision requested: in_review -> draft. Content editable again -> clear the lock.
+    await transitionArtifactVersionStatus(ctx.db, {
+      versionId,
+      expectedStatus: "in_review",
+      toStatus: "draft",
+      actor: ACTOR,
+    });
+    const [reopened] = await ctx.db
+      .select()
+      .from(artifactVersion)
+      .where(eq(artifactVersion.id, versionId));
+    expect(reopened!.approvalStatus).toBe("draft");
+    expect(reopened!.immutableAt).toBeNull(); // invariant: null while editable
+
+    // And in-place editing works again (would raise if still locked).
+    await editDraftContent(ctx.db, {
+      versionId,
+      newBodyMarkdown: "# revised in place\n",
+      actor: ACTOR,
+    });
+    const [edited] = await ctx.db
+      .select()
+      .from(artifactVersion)
+      .where(eq(artifactVersion.id, versionId));
+    expect(edited!.bodyMarkdown).toBe("# revised in place\n");
+  });
 });
