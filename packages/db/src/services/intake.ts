@@ -115,6 +115,7 @@ export async function intakeApplication(db: Db, input: IntakeInput): Promise<Int
         lifecycleType: input.person.lifecycleType ?? "applicant",
       })
       .returning();
+    if (!personRow) throw new Error("intake: person insert returned no row");
 
     const personCreatedEvent = await writeEvent(tx, {
       workspaceId: input.workspaceId,
@@ -140,6 +141,7 @@ export async function intakeApplication(db: Db, input: IntakeInput): Promise<Int
         version: 1,
       })
       .returning();
+    if (!opportunityRow) throw new Error("intake: opportunity insert returned no row");
 
     const opportunityCreatedEvent = await writeEvent(tx, {
       workspaceId: input.workspaceId,
@@ -171,6 +173,7 @@ export async function intakeApplication(db: Db, input: IntakeInput): Promise<Int
         intakeIdempotencyKey: idempotencyKey,
       })
       .returning();
+    if (!submissionRow) throw new Error("intake: submission insert returned no row");
 
     const applicationReceivedEvent = await writeEvent(tx, {
       workspaceId: input.workspaceId,

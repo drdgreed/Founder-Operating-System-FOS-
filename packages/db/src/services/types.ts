@@ -1,14 +1,23 @@
+import type { ExtractTablesWithRelations } from "drizzle-orm";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+
 /**
- * Loosely-typed handle for a Drizzle Postgres-dialect database/transaction.
+ * Bound handle for a Drizzle Postgres-dialect database OR transaction.
  *
- * Service functions in this slice are exercised at runtime against two
- * different drivers: `drizzle-orm/postgres-js` (apps/api, production) and
- * `drizzle-orm/pglite` (tests, PGlite). Both implement the same Postgres
- * query-builder surface (`select`/`insert`/`update`/`transaction`), but their
- * generic driver/session types differ enough that a precisely-typed alias
- * fights the type checker for no safety benefit in a bounded slice. `any` is
- * used deliberately here — a scoped, documented simplification, not an
- * oversight. DEVIATION — see slice report.
+ * Service functions run against two drivers with identical query-builder
+ * surfaces but different session/result generics: `drizzle-orm/postgres-js`
+ * (apps/api, production) and `drizzle-orm/pglite` (tests). Only the driver's
+ * query-result HKT genuinely differs, so THAT one type parameter stays `any`
+ * — but the schema parameters are precise, which restores full
+ * `insert(...).values(...)` / `select` type-checking against the canonical
+ * schema (the safety the previous `Db = any` erased). `PgTransaction` extends
+ * `PgDatabase`, so a `tx` inside `db.transaction(...)` is also a `Db`.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Db = any;
+type Schema = typeof import("../schema/index.js");
+
+export type Db = PgDatabase<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- driver HKT differs across postgres-js/pglite; only this param must be loose
+  any,
+  Schema,
+  ExtractTablesWithRelations<Schema>
+>;
