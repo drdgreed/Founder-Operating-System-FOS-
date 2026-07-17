@@ -121,6 +121,7 @@ export async function createArtifact(
         currentVersionId: null,
       })
       .returning();
+    if (!record) throw new Error("createArtifact: artifact_record insert returned no row");
 
     const [version] = await tx
       .insert(artifactVersion)
@@ -134,6 +135,7 @@ export async function createArtifact(
         approvalStatus: "draft",
       })
       .returning();
+    if (!version) throw new Error("createArtifact: artifact_version insert returned no row");
 
     await tx
       .update(artifactRecord)
@@ -479,6 +481,8 @@ export async function createArtifactRevision(
         approvalStatus: "draft",
       })
       .returning();
+    if (!version)
+      throw new Error("createArtifactRevision: artifact_version insert returned no row");
 
     await tx
       .update(artifactRecord)

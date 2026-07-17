@@ -14,6 +14,7 @@ export async function seedWorkspaceAndProduct(db: Db) {
     .insert(fosWorkspace)
     .values({ name: "Test Workspace", ownerUserId: "founder-1" })
     .returning();
+  if (!workspace) throw new Error("seedWorkspaceAndProduct: fos_workspace insert returned no row");
 
   const [top] = await db
     .insert(product)
@@ -25,6 +26,7 @@ export async function seedWorkspaceAndProduct(db: Db) {
       parentProductId: null,
     })
     .returning();
+  if (!top) throw new Error("seedWorkspaceAndProduct: product insert returned no row");
 
   return { workspace, product: top };
 }
@@ -46,6 +48,7 @@ export async function seedPerson(
       ...overrides,
     })
     .returning();
+  if (!row) throw new Error("seedPerson: person insert returned no row");
   return row;
 }
 
@@ -64,6 +67,7 @@ export async function seedOpportunity(
       version: 1,
     })
     .returning();
+  if (!row) throw new Error("seedOpportunity: enrollment_opportunity insert returned no row");
   return row;
 }
 
@@ -95,6 +99,7 @@ export async function seedArtifactWithStatus(
       currentVersionId: null,
     })
     .returning();
+  if (!record) throw new Error("seedArtifactWithStatus: artifact_record insert returned no row");
 
   const [version] = await db
     .insert(artifactVersion)
@@ -107,6 +112,7 @@ export async function seedArtifactWithStatus(
       approvalStatus: input.status,
     })
     .returning();
+  if (!version) throw new Error("seedArtifactWithStatus: artifact_version insert returned no row");
 
   await db
     .update(artifactRecord)

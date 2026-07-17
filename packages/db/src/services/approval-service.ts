@@ -142,6 +142,7 @@ export async function recordApprovalDecision(
         reason: input.reason ?? null,
       })
       .returning();
+    if (!approvalRow) throw new Error("recordApprovalDecision: approval insert returned no row");
 
     // ONE correlation_id for the whole operation (PATCH-SET-03 §B): both the
     // decision fact and its driven transition share it.
