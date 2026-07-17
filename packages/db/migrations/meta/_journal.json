@@ -15,6 +15,20 @@
       "when": 1784235912532,
       "tag": "0001_append_only_operational_event",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784250065634,
+      "tag": "0002_past_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784250073672,
+      "tag": "0003_artifact_version_content_immutable",
+      "breakpoints": true
     }
   ]
 }

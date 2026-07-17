@@ -4,3 +4,6 @@ export * from "./idempotency.js";
 export * from "./opportunity-transitions.js";
 export * from "./opportunity-transition-service.js";
 export * from "./intake.js";
+export * from "./content-hash.js";
+export * from "./artifact-transitions.js";
+export * from "./artifact-service.js";
