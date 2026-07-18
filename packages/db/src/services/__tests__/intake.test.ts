@@ -175,4 +175,69 @@ describe("intake service (spec §15.8, PATCH-SET-01 §S3)", () => {
     expect(submission!.opportunityId).toBe(result.opportunityId);
     expect(submission!.personId).toBe(result.personId);
   });
+
+  // Issue #6 / PATCH-SET-01 §S3: person_natural_key is undefined by spec.
+  // This slice's definition (email, else firstName|lastName|phone) degrades
+  // to firstName|lastName when both email and phone are absent, so two
+  // distinct applicants sharing a name silently collide. Documented as a
+  // known, accepted (non-blocking) limitation — these tests prove it holds
+  // and contrast it against the cases that are correctly NOT deduped.
+  it("FOS0-CORE-08: two distinct applicants with the same name and no email/phone silently collide (documented limitation)", async () => {
+    const first = await intakeApplication(
+      ctx.db,
+      makeInput({
+        person: { firstName: "Sam", lastName: "Lee", source: "website_application" },
+      }),
+    );
+    const second = await intakeApplication(
+      ctx.db,
+      makeInput({
+        person: { firstName: "Sam", lastName: "Lee", source: "website_application" },
+        application: {
+          formVersion: "v1",
+          rawPayloadJson: { answers: { goal: "a completely different application" } },
+          sourceReference: "web-form-2",
+        },
+      }),
+    );
+
+    expect(first.deduped).toBe(false);
+    expect(second.deduped).toBe(true);
+    expect(second.personId).toBe(first.personId);
+
+    const people = await ctx.db.select().from(person);
+    expect(people).toHaveLength(1); // the second (distinct) applicant was NOT recorded
+  });
+
+  it("FOS0-CORE-09: two applicants with the same name but different phone numbers are NOT deduped", async () => {
+    const first = await intakeApplication(
+      ctx.db,
+      makeInput({
+        person: {
+          firstName: "Sam",
+          lastName: "Lee",
+          phone: "+1-555-0100",
+          source: "website_application",
+        },
+      }),
+    );
+    const second = await intakeApplication(
+      ctx.db,
+      makeInput({
+        person: {
+          firstName: "Sam",
+          lastName: "Lee",
+          phone: "+1-555-0199",
+          source: "website_application",
+        },
+      }),
+    );
+
+    expect(first.deduped).toBe(false);
+    expect(second.deduped).toBe(false);
+    expect(second.personId).not.toBe(first.personId);
+
+    const people = await ctx.db.select().from(person);
+    expect(people).toHaveLength(2);
+  });
 });
