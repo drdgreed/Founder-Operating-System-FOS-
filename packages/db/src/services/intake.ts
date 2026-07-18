@@ -5,7 +5,11 @@ import { person, type personSourceEnum, type personLifecycleEnum } from "../sche
 import { enrollmentOpportunity } from "../schema/enrollment_opportunity.js";
 import { applicationSubmission } from "../schema/application_submission.js";
 import { writeEvent } from "./event-writer.js";
-import { deriveIntakeIdempotencyKey, normalizePersonNaturalKey } from "./idempotency.js";
+import {
+  deriveIntakeIdempotencyKey,
+  isDuplicateIntakeIdempotencyKeyError,
+  normalizePersonNaturalKey,
+} from "./idempotency.js";
 import type { Db } from "./types.js";
 
 type PersonSource = (typeof personSourceEnum.enumValues)[number];
@@ -66,6 +70,14 @@ export interface IntakeResult {
  *
  * Idempotent on `intake_idempotency_key` (PATCH-SET-01 §S3): a duplicate
  * intake with a matching key creates zero new rows and zero new events.
+ *
+ * The sequential duplicate path (SELECT finds the existing row) dedupes
+ * within the transaction. A *concurrent* duplicate can race past that SELECT
+ * (both transactions miss it before either commits); the loser's INSERT then
+ * hits the DB-level unique index instead. That is caught below and turned
+ * into the same graceful `deduped: true` result rather than propagating as
+ * an error (issue #5 / SF-4) — data-safe either way, since the failed
+ * transaction rolls back its person/opportunity/submission inserts.
  */
 export async function intakeApplication(db: Db, input: IntakeInput): Promise<IntakeResult> {
   const personNaturalKey = normalizePersonNaturalKey(input.person);
@@ -76,6 +88,34 @@ export async function intakeApplication(db: Db, input: IntakeInput): Promise<Int
     personNaturalKey,
   });
 
+  try {
+    return await runIntakeTransaction(db, input, idempotencyKey);
+  } catch (error) {
+    if (!isDuplicateIntakeIdempotencyKeyError(error)) throw error;
+
+    const [existing] = await db
+      .select()
+      .from(applicationSubmission)
+      .where(eq(applicationSubmission.intakeIdempotencyKey, idempotencyKey))
+      .limit(1);
+    if (!existing) throw error; // constraint says a row exists; if we can't see it, surface the original error.
+
+    return {
+      deduped: true,
+      personId: existing.personId,
+      opportunityId: existing.opportunityId,
+      submissionId: existing.id,
+      eventIds: [],
+      correlationId: null,
+    } satisfies IntakeResult;
+  }
+}
+
+async function runIntakeTransaction(
+  db: Db,
+  input: IntakeInput,
+  idempotencyKey: string,
+): Promise<IntakeResult> {
   return db.transaction(async (tx: Db) => {
     const [existing] = await tx
       .select()

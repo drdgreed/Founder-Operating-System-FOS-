@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { APPLICATION_SUBMISSION_INTAKE_IDEMPOTENCY_KEY_CONSTRAINT } from "../schema/application_submission.js";
 
 /**
  * `intake_idempotency_key` derivation (PATCH-SET-01 §S3):
@@ -36,4 +37,31 @@ export function normalizePersonNaturalKey(person: {
     return person.email.trim().toLowerCase();
   }
   return `${person.firstName}|${person.lastName}|${person.phone ?? ""}`.trim().toLowerCase();
+}
+
+/**
+ * Detects a Postgres unique-violation (SQLSTATE 23505) on the
+ * `intake_idempotency_key` constraint, thrown when a concurrent duplicate
+ * intake races past the service-layer SELECT (issue #5 / SF-4): both
+ * transactions miss the pre-insert existence check, and the DB-level unique
+ * index rejects the loser. The caller should treat this as a graceful dedupe,
+ * not an error.
+ *
+ * Drizzle wraps driver errors in `DrizzleQueryError` with the original error
+ * on `.cause`. The constraint-name field differs across drivers — PGlite
+ * (via @electric-sql/pg-protocol, used in tests) exposes `constraint`;
+ * postgres-js (production) exposes `constraint_name` — so both are checked.
+ */
+export function isDuplicateIntakeIdempotencyKeyError(error: unknown): boolean {
+  const cause =
+    error && typeof error === "object" && "cause" in error
+      ? (error as { cause?: unknown }).cause
+      : error;
+  if (!cause || typeof cause !== "object") return false;
+  const driverError = cause as { code?: unknown; constraint?: unknown; constraint_name?: unknown };
+  return (
+    driverError.code === "23505" &&
+    (driverError.constraint === APPLICATION_SUBMISSION_INTAKE_IDEMPOTENCY_KEY_CONSTRAINT ||
+      driverError.constraint_name === APPLICATION_SUBMISSION_INTAKE_IDEMPOTENCY_KEY_CONSTRAINT)
+  );
 }

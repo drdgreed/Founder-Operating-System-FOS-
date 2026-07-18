@@ -19,8 +19,13 @@ import { enrollmentOpportunity } from "./enrollment_opportunity.js";
  *
  * `intake_idempotency_key` (PATCH-SET-01 §S3) is stored here — it is the
  * natural home for application-intake deduplication, and its uniqueness is
- * enforced at the DB layer as a backstop for the service-layer check.
+ * enforced at the DB layer as a backstop for the service-layer check. The
+ * intake service catches a unique-violation on this constraint to dedupe
+ * gracefully when a concurrent duplicate races past the service-layer SELECT
+ * (see `isDuplicateIntakeIdempotencyKeyError` in `./services/idempotency.ts`).
  */
+export const APPLICATION_SUBMISSION_INTAKE_IDEMPOTENCY_KEY_CONSTRAINT =
+  "application_submission_intake_idempotency_key_unique";
 export const applicationSubmission = pgTable(
   "application_submission",
   {
@@ -55,7 +60,7 @@ export const applicationSubmission = pgTable(
   },
   (table) => ({
     intakeIdempotencyKeyUnique: uniqueIndex(
-      "application_submission_intake_idempotency_key_unique",
+      APPLICATION_SUBMISSION_INTAKE_IDEMPOTENCY_KEY_CONSTRAINT,
     ).on(table.intakeIdempotencyKey),
     opportunityIdFk: foreignKey({
       columns: [table.opportunityId],

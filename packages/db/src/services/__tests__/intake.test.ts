@@ -3,10 +3,34 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "./pglite-db.js";
 import { seedWorkspaceAndProduct } from "./fixtures.js";
 import { intakeApplication, type IntakeInput } from "../intake.js";
+import type { Db } from "../types.js";
 import { operationalEvent } from "../../schema/operational_event.js";
 import { person } from "../../schema/person.js";
 import { enrollmentOpportunity } from "../../schema/enrollment_opportunity.js";
 import { applicationSubmission } from "../../schema/application_submission.js";
+
+/**
+ * Simulates the SELECT-miss half of the issue #5 / SF-4 concurrent-duplicate
+ * race: PGlite is single-connection, so two real overlapping transactions
+ * (needed to genuinely race two SELECTs) can't be produced here. This forces
+ * the pre-insert existence check inside the transaction to return no rows —
+ * exactly what a losing concurrent transaction would see — so the flow falls
+ * through to the INSERT, which the real DB-level unique index then rejects
+ * with a genuine 23505. Everything else (the FK-real inserts, the real
+ * driver error) is untouched.
+ */
+function withForcedIdempotencySelectMiss(db: Db): Db {
+  const wrapped = Object.create(db) as Db;
+  wrapped.transaction = ((cb: (tx: Db) => Promise<unknown>) =>
+    db.transaction.call(db, (tx: Db) => {
+      const forcedTx = Object.create(tx) as Db;
+      forcedTx.select = (() => ({
+        from: () => ({ where: () => ({ limit: async () => [] }) }),
+      })) as unknown as Db["select"];
+      return cb(forcedTx);
+    })) as Db["transaction"];
+  return wrapped;
+}
 
 describe("intake service (spec §15.8, PATCH-SET-01 §S3)", () => {
   let ctx: Awaited<ReturnType<typeof createTestDb>>;
@@ -115,6 +139,31 @@ describe("intake service (spec §15.8, PATCH-SET-01 §S3)", () => {
     expect(second.deduped).toBe(false);
     const people = await ctx.db.select().from(person);
     expect(people).toHaveLength(2);
+  });
+
+  it("FOS0-CORE-07: a concurrent duplicate that races past the SELECT dedupes gracefully instead of throwing (issue #5)", async () => {
+    const input = makeInput();
+    const first = await intakeApplication(ctx.db, input);
+
+    const raceDb = withForcedIdempotencySelectMiss(ctx.db);
+    const second = await intakeApplication(raceDb, input);
+
+    expect(second.deduped).toBe(true);
+    expect(second.personId).toBe(first.personId);
+    expect(second.opportunityId).toBe(first.opportunityId);
+    expect(second.submissionId).toBe(first.submissionId);
+    expect(second.eventIds).toHaveLength(0);
+
+    // negative case: the losing transaction's rollback left exactly the
+    // winner's rows/events behind — no partial or duplicate data.
+    const people = await ctx.db.select().from(person);
+    const opportunities = await ctx.db.select().from(enrollmentOpportunity);
+    const submissions = await ctx.db.select().from(applicationSubmission);
+    const events = await ctx.db.select().from(operationalEvent);
+    expect(people).toHaveLength(1);
+    expect(opportunities).toHaveLength(1);
+    expect(submissions).toHaveLength(1);
+    expect(events).toHaveLength(3);
   });
 
   it("FOS0-CORE-06: application.received references the opportunity created in the same intake", async () => {
