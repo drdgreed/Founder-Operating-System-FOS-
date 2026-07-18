@@ -46,6 +46,10 @@
 
 Add a small registry (map: event `type` → Zod payload schema) + a validator the event writer (or artifact service) calls; unregistered artifact event types are rejected at write time. (Event types outside the artifact domain remain governed by their own slices; this patch registers the artifact set only.)
 
+## D — Ratify `updated_at` on §9.13 ArtifactVersion (closes #9)
+
+§9.13's field list names only `created_at`; the 0.1b implementation also carries `updated_at`, required by §B's mutable-status/`immutable_at` design (a lifecycle transition mutates `approval_status`/`immutable_at` on an existing row, which needs a mutation timestamp distinct from the immutable `created_at`). This is not a new convention: every other §9 entity already lists `updated_at` alongside `created_at`. Ratified: §9.13's field list is amended to add `updated_at` (non-nullable, defaults to now, updated on every write), consistent with the rest of §9.
+
 ---
 
 ## Not changed
