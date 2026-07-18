@@ -64,6 +64,13 @@
       "when": 1784412998317,
       "tag": "0008_complete_wind_dancer",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784414862016,
+      "tag": "0009_groovy_corsair",
+      "breakpoints": true
     }
   ]
 }
