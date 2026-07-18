@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "./pglite-db.js";
@@ -110,5 +111,66 @@ describe("artifact_record.current_version_id same-record guard (issue #8, migrat
       .from(artifactRecord)
       .where(eq(artifactRecord.id, created.artifactId));
     expect(record!.currentVersionId).toBeNull();
+  });
+
+  it("FOS0-ART-57: a direct INSERT pointing current_version_id at ANOTHER record's version RAISES (INSERT branch, not just UPDATE)", async () => {
+    const other = await createArtifact(ctx.db, {
+      workspaceId,
+      productId,
+      artifactType: "internal_note",
+      domain: "editorial",
+      title: "Other record",
+      bodyMarkdown: "# Other\n",
+      actor: ACTOR,
+    });
+
+    await expect(
+      ctx.db.insert(artifactRecord).values({
+        workspaceId,
+        productId,
+        artifactType: "internal_note",
+        domain: "editorial",
+        title: "Bad insert",
+        currentVersionId: other.versionId,
+      }),
+    ).rejects.toSatisfy((err: unknown) =>
+      causeChainMatches(err, /must reference an artifact_version belonging to this record/i),
+    );
+
+    // Nothing was inserted: the failed row does not exist.
+    const rows = await ctx.db
+      .select()
+      .from(artifactRecord)
+      .where(eq(artifactRecord.title, "Bad insert"));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("FOS0-ART-58: setting current_version_id to a non-existent (random) UUID RAISES, not just a wrong-record UUID", async () => {
+    const created = await createArtifact(ctx.db, {
+      workspaceId,
+      productId,
+      artifactType: "internal_note",
+      domain: "editorial",
+      title: "Note",
+      bodyMarkdown: "# Body\n",
+      actor: ACTOR,
+    });
+
+    const randomVersionId = randomUUID();
+    await expect(
+      ctx.db
+        .update(artifactRecord)
+        .set({ currentVersionId: randomVersionId })
+        .where(eq(artifactRecord.id, created.artifactId)),
+    ).rejects.toSatisfy((err: unknown) =>
+      causeChainMatches(err, /must reference an artifact_version belonging to this record/i),
+    );
+
+    // Unchanged: still points at its own v1.
+    const [record] = await ctx.db
+      .select()
+      .from(artifactRecord)
+      .where(eq(artifactRecord.id, created.artifactId));
+    expect(record!.currentVersionId).toBe(created.versionId);
   });
 });
