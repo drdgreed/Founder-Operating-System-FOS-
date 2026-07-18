@@ -57,6 +57,13 @@
       "when": 1784407512109,
       "tag": "0007_artifact_record_current_version_same_record",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784412998317,
+      "tag": "0008_complete_wind_dancer",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,9 @@
  *
  * Slice 0.1c ("approvals") adds:
  *   approval (§9.14) — the human-gate decision on an ArtifactVersion.
+ *
+ * Slice 0.2a ("Notion adapter client + entity") adds:
+ *   workspace_integration (§11.1) — a provider adapter connection.
  */
 export * from "./fos_workspace.js";
 export * from "./product.js";
@@ -22,3 +25,4 @@ export * from "./operational_event.js";
 export * from "./artifact_record.js";
 export * from "./artifact_version.js";
 export * from "./approval.js";
+export * from "./workspace_integration.js";
