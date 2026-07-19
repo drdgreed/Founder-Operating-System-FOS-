@@ -21,7 +21,10 @@ export async function createTestDb() {
   };
 }
 
-export async function seedOpportunity(db: Awaited<ReturnType<typeof createTestDb>>["db"]) {
+export async function seedOpportunity(
+  db: Awaited<ReturnType<typeof createTestDb>>["db"],
+  overrides: Partial<typeof enrollmentOpportunity.$inferInsert> = {},
+) {
   const [workspace] = await db
     .insert(fosWorkspace)
     .values({ name: "Test Workspace", ownerUserId: "founder-1" })
@@ -61,6 +64,7 @@ export async function seedOpportunity(db: Awaited<ReturnType<typeof createTestDb
       stage: "new_lead",
       currency: "USD",
       version: 1,
+      ...overrides,
     })
     .returning();
   if (!opportunity)

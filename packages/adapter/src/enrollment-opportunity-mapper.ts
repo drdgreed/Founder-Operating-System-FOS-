@@ -1,4 +1,5 @@
 import type { enrollmentOpportunity, projectionSyncStatusEnum } from "@fos/db/schema";
+import { readRichTextProperty, readSelectProperty } from "./notion-properties.js";
 
 export type EnrollmentOpportunityRow = typeof enrollmentOpportunity.$inferSelect;
 export type ProjectionSyncStatus = (typeof projectionSyncStatusEnum.enumValues)[number];
@@ -51,11 +52,60 @@ export function enrollmentOpportunityToNotionProperties(
   };
 }
 
+export type FieldOwnership = "canonical_read_only" | "working_copy_editable";
+
 /**
- * Minimal §8.2/§11.3 ProjectionPolicy for the fields this slice projects.
- * `Stage` is marked `canonical_read_only`: this slice writes it FOS->Notion
- * only; nothing here lets a Notion edit flow back (that's the reconciliation
- * + command-intake slices, 0.2c/0.2d).
+ * Reconciliation field table (issue #30, slice 0.2c) — for each canonical
+ * EnrollmentOpportunity field that reconcile() diffs against its Notion
+ * page: which visible property carries it, how to parse that property's
+ * value back off the page, how to read the current canonical value, and
+ * its §8.1 ownership class (which decides command-vs-conflict per §8.3).
+ *
+ * FLAG (PATCH-SET candidate — founder-editable field set underspecified):
+ * 0.2b's mapper only ever WRITES `Stage` (marked `canonical_read_only`
+ * there, per spec §8.1's own "Opportunity stage" example) — no
+ * `working_copy_editable` EnrollmentOpportunity property exists yet in the
+ * outbound projection. Spec §8.1's `working_copy_editable` examples
+ * ("Founder annotations", "research notes", "open questions") are
+ * artifact-shaped, not enumerated for EnrollmentOpportunity specifically.
+ * `next_action_summary` is the closest existing canonical field to that
+ * archetype (a founder's free-text working note on the opportunity), so
+ * this slice adopts it as the minimal defensible founder-editable field to
+ * make the reconcile command path real rather than untestable. This is a
+ * genuine business-fact choice, not a mechanical default — it needs a
+ * founder/product sign-off pass into a real ProjectionPolicy record
+ * (§11.3) and, if kept, a corresponding outbound-mapper change so Notion
+ * actually surfaces "Next Action Summary" as an editable property.
+ */
+export const enrollmentOpportunityReconcilableFields = {
+  stage: {
+    propertyName: "Stage",
+    ownership: "canonical_read_only" as FieldOwnership,
+    readValue: readSelectProperty,
+    canonicalValue: (opp: EnrollmentOpportunityRow): string | null => opp.stage,
+  },
+  nextActionSummary: {
+    propertyName: "Next Action Summary",
+    ownership: "working_copy_editable" as FieldOwnership,
+    readValue: readRichTextProperty,
+    canonicalValue: (opp: EnrollmentOpportunityRow): string | null => opp.nextActionSummary,
+  },
+} satisfies Record<
+  string,
+  {
+    propertyName: string;
+    ownership: FieldOwnership;
+    readValue: (prop: unknown) => string | null;
+    canonicalValue: (opp: EnrollmentOpportunityRow) => string | null;
+  }
+>;
+
+/**
+ * Minimal §8.2/§11.3 ProjectionPolicy for the fields this slice projects
+ * and/or reconciles. `fields` is derived from
+ * `enrollmentOpportunityReconcilableFields` (plus `id`/`version`, which are
+ * hidden-property-only — never a visible, reconcilable field) so the two
+ * never drift apart.
  */
 export const enrollmentOpportunityProjectionPolicy = {
   entity_type: "EnrollmentOpportunity",
@@ -63,7 +113,12 @@ export const enrollmentOpportunityProjectionPolicy = {
   fields: {
     id: "canonical_read_only",
     version: "canonical_read_only",
-    stage: "canonical_read_only",
+    ...Object.fromEntries(
+      Object.entries(enrollmentOpportunityReconcilableFields).map(([field, def]) => [
+        field,
+        def.ownership,
+      ]),
+    ),
   },
   redaction_rules: [],
   maximum_sensitivity: "internal",

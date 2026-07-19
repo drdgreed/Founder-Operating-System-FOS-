@@ -71,6 +71,13 @@
       "when": 1784414862016,
       "tag": "0009_groovy_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784425881283,
+      "tag": "0010_skinny_siren",
+      "breakpoints": true
     }
   ]
 }
