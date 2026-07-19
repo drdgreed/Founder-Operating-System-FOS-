@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { NotionClient, type FetchLike } from "@fos/notion";
 import {
@@ -7,8 +7,16 @@ import {
   projection,
   workspaceCommand,
 } from "@fos/db/schema";
+import * as services from "@fos/db/services";
 import { executeStageCommands } from "../execute-stage-commands.js";
 import { createTestDb, seedOpportunity } from "./test-db.js";
+
+// Pass-through mock so individual tests can vi.spyOn a named export (ESM
+// live-binding) — used by FOS0-EXE-10 to force one unexpected transition
+// failure and prove batch isolation.
+vi.mock("@fos/db/services", async (importOriginal) => {
+  return await importOriginal<typeof import("@fos/db/services")>();
+});
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status });
@@ -563,6 +571,80 @@ describe("executeStageCommands (issue #36, slice 0.2e — controlled-command exe
       const expectedStage = winnerId === a.id ? "reviewing" : "disqualified";
       expect((await readOpportunity(db, opportunity.id)).stage).toBe(expectedStage);
     } finally {
+      await close();
+    }
+  });
+
+  it("FOS0-EXE-10: an UNEXPECTED error on one command is isolated (result.failed) and does NOT abort the batch (poison-pill)", async () => {
+    const { db, close } = await createTestDb();
+    const realTransition = services.transitionOpportunity;
+    let bad: { id: string } | undefined;
+    const spy = vi
+      .spyOn(services, "transitionOpportunity")
+      .mockImplementation(async (dbArg, input) => {
+        // Simulate an unexpected infra fault (not Stale/Illegal) for one target.
+        if (bad && input.opportunityId === bad.id) throw new Error("simulated unexpected DB fault");
+        return realTransition(dbArg, input);
+      });
+    try {
+      // Two opportunities in the SAME workspace so both are processed in one run.
+      const {
+        workspace,
+        product,
+        person,
+        opportunity: good,
+      } = await seedOpportunity(db, {
+        version: 1,
+        stage: "new_lead",
+      });
+      const [badOpp] = await db
+        .insert(enrollmentOpportunity)
+        .values({
+          workspaceId: workspace.id,
+          productId: product.id,
+          personId: person.id,
+          stage: "new_lead",
+          currency: "USD",
+          version: 1,
+        })
+        .returning();
+      bad = badOpp!;
+
+      const badCommand = await insertCommand(db, {
+        workspaceId: workspace.id,
+        targetEntityId: bad.id,
+        targetVersion: 1,
+        from: "new_lead",
+        to: "reviewing",
+        idempotencyKey: "key-bad",
+      });
+      const goodCommand = await insertCommand(db, {
+        workspaceId: workspace.id,
+        targetEntityId: good.id,
+        targetVersion: 1,
+        from: "new_lead",
+        to: "reviewing",
+        idempotencyKey: "key-good",
+      });
+      const { client } = makeMockNotion("notion-page-1");
+
+      const result = await executeStageCommands(db, client, {
+        workspaceId: workspace.id,
+        dataSourceId: "data-source-1",
+      });
+
+      // The bad command's group threw an unexpected error → isolated + counted;
+      // the good command STILL executed. One bad command cannot starve the queue.
+      expect(result.failed).toBe(1);
+      expect(result.succeeded).toBe(1);
+      // Bad command left `received` (retried next run); its canonical untouched.
+      expect((await readCommand(db, badCommand.id)).status).toBe("received");
+      expect((await readOpportunity(db, bad.id)).stage).toBe("new_lead");
+      // Good command applied.
+      expect((await readCommand(db, goodCommand.id)).status).toBe("succeeded");
+      expect((await readOpportunity(db, good.id)).stage).toBe("reviewing");
+    } finally {
+      spy.mockRestore();
       await close();
     }
   });
