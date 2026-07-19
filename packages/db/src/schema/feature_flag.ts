@@ -14,6 +14,7 @@ import { fosWorkspace } from "./fos_workspace.js";
  * upserted, not appended).
  */
 export const featureFlagModeEnum = pgEnum("feature_flag_mode", ["shadow", "review", "live"]);
+export type FeatureFlagMode = (typeof featureFlagModeEnum.enumValues)[number];
 
 export const featureFlag = pgTable(
   "feature_flag",

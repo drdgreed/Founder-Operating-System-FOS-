@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, jsonb, timestamp, index } from "drizzle-orm/pg-core";
 import { enrollmentOpportunity } from "./enrollment_opportunity.js";
 import { agentRun } from "./agent_run.js";
 
@@ -20,29 +20,37 @@ import { agentRun } from "./agent_run.js";
  *   `enrollment_opportunity.fit_status` being left as open text rather than
  *   inventing a numeric scale/precision). FLAG — see PR description.
  */
-export const enrollmentAssessment = pgTable("enrollment_assessment", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  opportunityId: uuid("opportunity_id")
-    .notNull()
-    .references(() => enrollmentOpportunity.id),
-  agentRunId: uuid("agent_run_id").references(() => agentRun.id),
-  version: integer("version").notNull().default(1),
-  observedFactsJson: jsonb("observed_facts_json")
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  inferencesJson: jsonb("inferences_json")
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  fitStatus: text("fit_status"),
-  // FLAG: type ambiguous in spec §6.4 ("text or numeric") — see header note.
-  fitConfidence: text("fit_confidence"),
-  fitRationale: text("fit_rationale"),
-  recommendedPathway: text("recommended_pathway"),
-  unknownsJson: jsonb("unknowns_json")
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  riskFlagsJson: jsonb("risk_flags_json")
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const enrollmentAssessment = pgTable(
+  "enrollment_assessment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    opportunityId: uuid("opportunity_id")
+      .notNull()
+      .references(() => enrollmentOpportunity.id),
+    agentRunId: uuid("agent_run_id").references(() => agentRun.id),
+    version: integer("version").notNull().default(1),
+    observedFactsJson: jsonb("observed_facts_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    inferencesJson: jsonb("inferences_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    fitStatus: text("fit_status"),
+    // FLAG: type ambiguous in spec §6.4 ("text or numeric") — see header note.
+    fitConfidence: text("fit_confidence"),
+    fitRationale: text("fit_rationale"),
+    recommendedPathway: text("recommended_pathway"),
+    unknownsJson: jsonb("unknowns_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    riskFlagsJson: jsonb("risk_flags_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // P1.1 index migration (issue #50, folds in the P1.0 gate NIT).
+    opportunityIdIdx: index("enrollment_assessment_opportunity_id_idx").on(table.opportunityId),
+    agentRunIdIdx: index("enrollment_assessment_agent_run_id_idx").on(table.agentRunId),
+  }),
+);
