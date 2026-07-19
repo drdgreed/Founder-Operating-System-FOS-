@@ -12,6 +12,7 @@ import type {
 } from "@fos/adapter";
 import { reconcile, captureStageCommands } from "@fos/adapter";
 import { handleNotionWebhook, type NotionWebhookConfig } from "../lib/notion-webhook.js";
+import { FixedWindowRateLimiter } from "../lib/webhook-rate-limiter.js";
 import { createTestDb, seedWorkspaceAndProduct } from "./helpers.js";
 
 const TOKEN_REF = "FOS_TEST_NOTION_WEBHOOK_TOKEN";
@@ -38,6 +39,18 @@ function baseConfig(overrides: Partial<NotionWebhookConfig> = {}): NotionWebhook
     webhookCredentialReference: TOKEN_REF,
     ...overrides,
   };
+}
+
+/**
+ * A generous, DEDICATED-per-test limiter — every test that reaches the
+ * trigger-check branch gets its own instance so none of them share state
+ * (the module's real `defaultTriggerRateLimiter` singleton, or state from
+ * another test) via `handleNotionWebhook`'s default. Only the tests that
+ * specifically exercise rate-limiting behavior construct their own
+ * deliberately-tight limiter instead of calling this.
+ */
+function freshRateLimiter(): FixedWindowRateLimiter {
+  return new FixedWindowRateLimiter({ maxRequests: 1000, windowMs: 60_000 });
 }
 
 /** A NotionClient whose underlying fetch throws if it's ever actually called
@@ -98,7 +111,13 @@ describe("handleNotionWebhook (issue #39, slice 0.2f — SECURITY-CRITICAL)", ()
     const config = baseConfig();
 
     const result = await handleNotionWebhook(
-      { db: {} as Db, notionClient: unusedNotionClient(), reconcileFn, captureStageCommandsFn },
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        triggerRateLimiter: freshRateLimiter(),
+      },
       config,
       rawBody,
       sign(rawBody),
@@ -137,6 +156,7 @@ describe("handleNotionWebhook (issue #39, slice 0.2f — SECURITY-CRITICAL)", ()
         notionClient: unusedNotionClient(),
         reconcileFn: throwingReconcile,
         captureStageCommandsFn,
+        triggerRateLimiter: freshRateLimiter(),
       },
       config,
       rawBody,
@@ -212,7 +232,13 @@ describe("handleNotionWebhook (issue #39, slice 0.2f — SECURITY-CRITICAL)", ()
     const config = baseConfig();
 
     const result = await handleNotionWebhook(
-      { db: {} as Db, notionClient: unusedNotionClient(), reconcileFn, captureStageCommandsFn },
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        triggerRateLimiter: freshRateLimiter(),
+      },
       config,
       rawBody,
       sign(rawBody),
@@ -293,6 +319,194 @@ describe("handleNotionWebhook (issue #39, slice 0.2f — SECURITY-CRITICAL)", ()
     );
     expect(unconfiguredResult.status).toBe(503);
     expect(JSON.stringify(unconfiguredResult.body)).not.toMatch(TOKEN);
+  });
+
+  it("FOS0-WHK-16 (issue #41 item 1): a stale event (timestamp past the freshness ceiling) is ack'd 200 without triggering fetch-latest", async () => {
+    const { reconcileCalls, captureCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const rawBody = eventBody({ timestamp: "2026-07-19T00:00:00.000Z" });
+    const config = baseConfig();
+    // "now" is 20 minutes after the event's timestamp — past the 15-minute
+    // default ceiling.
+    const now = () => Date.parse("2026-07-19T00:20:00.000Z");
+
+    const result = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+      },
+      config,
+      rawBody,
+      sign(rawBody),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.skippedReason).toBe("stale-event");
+    expect(reconcileCalls).toHaveLength(0);
+    expect(captureCalls).toHaveLength(0);
+  });
+
+  it("a fresh event (timestamp within the freshness ceiling) triggers fetch-latest normally", async () => {
+    const { reconcileCalls, captureCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const rawBody = eventBody({ timestamp: "2026-07-19T00:00:00.000Z" });
+    const config = baseConfig();
+    // "now" is 5 minutes after the event's timestamp — comfortably fresh.
+    const now = () => Date.parse("2026-07-19T00:05:00.000Z");
+
+    const result = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+        triggerRateLimiter: freshRateLimiter(),
+      },
+      config,
+      rawBody,
+      sign(rawBody),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.skippedReason).toBeUndefined();
+    expect(reconcileCalls).toHaveLength(1);
+    expect(captureCalls).toHaveLength(1);
+  });
+
+  it("an event with NO timestamp is never gated by staleness — it triggers normally regardless of `now`", async () => {
+    const { reconcileCalls, captureCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const rawBody = eventBody(); // no `timestamp` field
+    const config = baseConfig();
+    const now = () => Date.parse("2099-01-01T00:00:00.000Z"); // absurdly "later"
+
+    const result = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+        triggerRateLimiter: freshRateLimiter(),
+      },
+      config,
+      rawBody,
+      sign(rawBody),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.skippedReason).toBeUndefined();
+    expect(reconcileCalls).toHaveLength(1);
+  });
+
+  it("a custom maxEventAgeMs is honored", async () => {
+    const { reconcileCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const rawBody = eventBody({ timestamp: "2026-07-19T00:00:00.000Z" });
+    // Only 1 minute old, but the ceiling is configured to 30 seconds.
+    const config = baseConfig({ maxEventAgeMs: 30_000 });
+    const now = () => Date.parse("2026-07-19T00:01:00.000Z");
+
+    const result = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+      },
+      config,
+      rawBody,
+      sign(rawBody),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.skippedReason).toBe("stale-event");
+    expect(reconcileCalls).toHaveLength(0);
+  });
+
+  it("FOS0-WHK-17 (issue #41 item 1): once the trigger rate limit is exhausted, further valid events are ack'd 200 without triggering fetch-latest", async () => {
+    const { reconcileCalls, captureCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const config = baseConfig();
+    const triggerRateLimiter = new FixedWindowRateLimiter({ maxRequests: 1, windowMs: 60_000 });
+    const now = () => 0;
+
+    const rawBody1 = eventBody({ entity: { id: "page-a", type: "page" } });
+    const first = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+        triggerRateLimiter,
+      },
+      config,
+      rawBody1,
+      sign(rawBody1),
+    );
+    expect(first.status).toBe(200);
+    expect(first.skippedReason).toBeUndefined();
+    expect(reconcileCalls).toHaveLength(1);
+
+    const rawBody2 = eventBody({ entity: { id: "page-b", type: "page" } });
+    const second = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now,
+        triggerRateLimiter,
+      },
+      config,
+      rawBody2,
+      sign(rawBody2),
+    );
+    expect(second.status).toBe(200);
+    expect(second.skippedReason).toBe("rate-limited");
+    // Still just the one call from the first (allowed) request.
+    expect(reconcileCalls).toHaveLength(1);
+    expect(captureCalls).toHaveLength(1);
+  });
+
+  it("a fresh rate limiter allows a request again once its window has elapsed", async () => {
+    const { reconcileCalls, reconcileFn, captureStageCommandsFn } = stubTriggers();
+    const config = baseConfig();
+    const triggerRateLimiter = new FixedWindowRateLimiter({ maxRequests: 1, windowMs: 1000 });
+
+    const rawBody1 = eventBody({ entity: { id: "page-a", type: "page" } });
+    const first = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now: () => 0,
+        triggerRateLimiter,
+      },
+      config,
+      rawBody1,
+      sign(rawBody1),
+    );
+    expect(first.skippedReason).toBeUndefined();
+
+    const rawBody2 = eventBody({ entity: { id: "page-b", type: "page" } });
+    const second = await handleNotionWebhook(
+      {
+        db: {} as Db,
+        notionClient: unusedNotionClient(),
+        reconcileFn,
+        captureStageCommandsFn,
+        now: () => 1000, // one full window later
+        triggerRateLimiter,
+      },
+      config,
+      rawBody2,
+      sign(rawBody2),
+    );
+    expect(second.skippedReason).toBeUndefined();
+    expect(reconcileCalls).toHaveLength(2);
   });
 });
 
@@ -382,6 +596,7 @@ describe("handleNotionWebhook idempotency (real reconcile + captureStageCommands
         notionClient,
         reconcileFn: reconcile,
         captureStageCommandsFn: captureStageCommands,
+        triggerRateLimiter: freshRateLimiter(),
       };
 
       const first = await handleNotionWebhook(deps, config, rawBody, sign(rawBody));

@@ -11,7 +11,7 @@
  */
 export type WebhookSignal =
   | { kind: "verification"; verificationToken: string }
-  | { kind: "event"; eventType: string; dataSourceId?: string; pageId?: string }
+  | { kind: "event"; eventType: string; dataSourceId?: string; pageId?: string; timestamp?: string }
   | { kind: "unrecognized" };
 
 /**
@@ -69,11 +69,16 @@ export function parseWebhookSignal(body: unknown): WebhookSignal {
   const dataSourceIdFromParent = readEntityId(parent, "data_source");
 
   const dataSourceId = dataSourceIdFromEntity ?? dataSourceIdFromParent;
+  // Notion's documented top-level delivery `timestamp` (ADR-06: "no ordering
+  // guarantee — reorder by timestamp"). Used only for replay/staleness
+  // bounding (issue #41) — never for ordering/content decisions here.
+  const timestamp = typeof body.timestamp === "string" ? body.timestamp : undefined;
 
   return {
     kind: "event",
     eventType,
     ...(dataSourceId !== undefined ? { dataSourceId } : {}),
     ...(pageId !== undefined ? { pageId } : {}),
+    ...(timestamp !== undefined ? { timestamp } : {}),
   };
 }

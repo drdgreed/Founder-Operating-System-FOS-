@@ -1,7 +1,7 @@
 # ADR-06 — Notion Integration Boundary (capability spike → adapter decision)
 
 **Status:** ACCEPTED (findings) · gates slice 0.2 (the Notion adapter) · **Date:** 2026-07-17
-**Context:** FOS is the canonical system of record; Notion is a provider-neutral **workspace adapter** (projections FOS→Notion + commands Notion→FOS). Auth decided in ADR-05 (internal-integration token, single founder workspace). This ADR records a capability spike against the current Notion API (version **2026-03-01**) so the adapter is built on verified mechanics, not assumptions.
+**Context:** FOS is the canonical system of record; Notion is a provider-neutral **workspace adapter** (projections FOS→Notion + commands Notion→FOS). Auth decided in ADR-05 (internal-integration token, single founder workspace). This ADR records a capability spike against the current Notion API (version **2026-03-11** — note: an earlier draft cited `2026-03-01`, which the live API rejects with `missing_version`; corrected after live validation on 2026-07-19) so the adapter is built on verified mechanics, not assumptions.
 
 ## Findings (all cited to developers.notion.com / notion.com/help)
 1. **Webhooks — signal only, not content.** 23 event types (`page.properties_updated`, `page.content_updated`, `data_source.*`; note `database.*` is deprecated → `data_source.*`). **Payloads carry IDs only** (`updated_properties` = property IDs, no values) → every event forces a **fetch-latest** call. Delivery is **at-most-once**, **no ordering guarantee** (reorder by `timestamp`), retried up to 8× (~24h), high-frequency edits **batched**.

@@ -7,6 +7,26 @@ import {
 } from "@fos/notion";
 import { reconcile, captureStageCommands } from "@fos/adapter";
 import type { HandlerResult } from "./handlers.js";
+import {
+  FixedWindowRateLimiter,
+  DEFAULT_TRIGGER_RATE_LIMIT,
+  type WebhookRateLimiter,
+} from "./webhook-rate-limiter.js";
+
+/** ADR-06: Notion's documented typical delivery is ~1 min, max ~5 min
+ * (incl. batching). 15 minutes is comfortably above that — no legitimate
+ * near-real-time delivery is ever wrongly treated as stale — while still
+ * bounding how long a captured, replayable signed body stays useful to an
+ * attacker after interception (issue #41 item 1). A stale event is safe to
+ * skip: the poll loop (~2 min cadence) has certainly already captured it by
+ * the time it's this old. */
+const DEFAULT_MAX_EVENT_AGE_MS = 15 * 60 * 1000;
+
+/** Module-scope singleton, same "process-lifetime" rationale as
+ * `lib/db.ts`'s connection pool — a fresh limiter per request would defeat
+ * its purpose. Tests inject their own via `deps.triggerRateLimiter` instead
+ * of sharing this one. */
+const defaultTriggerRateLimiter = new FixedWindowRateLimiter(DEFAULT_TRIGGER_RATE_LIMIT);
 
 /**
  * Testable core for `POST /api/fos/notion/webhook` (issue #39, slice 0.2f —
@@ -27,6 +47,12 @@ export interface NotionWebhookDeps {
   notionClient: NotionClient;
   reconcileFn?: typeof reconcile;
   captureStageCommandsFn?: typeof captureStageCommands;
+  /** Injectable clock for deterministic freshness-window tests. Defaults to
+   * `Date.now`. */
+  now?: () => number;
+  /** Injectable so tests get a fresh limiter instead of sharing the module
+   * singleton. Defaults to a shared per-process limiter. */
+  triggerRateLimiter?: WebhookRateLimiter;
 }
 
 export interface NotionWebhookConfig {
@@ -50,6 +76,9 @@ export interface NotionWebhookConfig {
   /** Credential reference (env var name) for the verification_token. Defaults
    * to FOS_NOTION_WEBHOOK_SECRET (see .env.example). */
   webhookCredentialReference?: string;
+  /** Reject-the-trigger-only age ceiling for an event's Notion-supplied
+   * `timestamp` (issue #41 item 1). Defaults to `DEFAULT_MAX_EVENT_AGE_MS`. */
+  maxEventAgeMs?: number;
 }
 
 function serviceUnavailable(): HandlerResult {
@@ -71,9 +100,11 @@ export async function handleNotionWebhook(
   config: NotionWebhookConfig,
   rawBody: string,
   signatureHeader: string | null,
-): Promise<HandlerResult & { logError?: unknown }> {
+): Promise<HandlerResult & { logError?: unknown; skippedReason?: "stale-event" | "rate-limited" }> {
   const reconcileFn = deps.reconcileFn ?? reconcile;
   const captureFn = deps.captureStageCommandsFn ?? captureStageCommands;
+  const now = deps.now ?? Date.now;
+  const rateLimiter = deps.triggerRateLimiter ?? defaultTriggerRateLimiter;
 
   let parsedBody: unknown;
   try {
@@ -124,6 +155,35 @@ export async function handleNotionWebhook(
     // — never trigger a fetch-latest against an unconfigured target.
     if (!config.workspaceId || !config.dataSourceId) {
       return serviceUnavailable();
+    }
+
+    // Replay/compute-DoS bounding (issue #41 item 1). A VALID signature over
+    // a fixed body is itself replayable indefinitely — the signature alone
+    // can't distinguish "genuinely new" from "the same body replayed" — and
+    // each replay would otherwise pay full reconcile/capture cost. Two
+    // independent bounds, checked BEFORE the trigger runs:
+    //
+    // 1. Staleness: if Notion's own delivery `timestamp` is older than the
+    //    configured ceiling, skip — the ~2-min poll loop has certainly
+    //    already captured this change by then, so skipping loses only
+    //    latency, never correctness (same reasoning as a trigger failure
+    //    below). A missing/unparseable timestamp does not gate anything —
+    //    an attacker can only replay a body byte-for-byte as originally
+    //    signed, so if the legitimate original lacked a timestamp, so does
+    //    every possible replay of it; there's no bypass here to close.
+    const eventTimestamp = signal.timestamp === undefined ? NaN : Date.parse(signal.timestamp);
+    if (!Number.isNaN(eventTimestamp)) {
+      const maxAgeMs = config.maxEventAgeMs ?? DEFAULT_MAX_EVENT_AGE_MS;
+      if (now() - eventTimestamp > maxAgeMs) {
+        return { status: 200, body: { status: "ok" }, skippedReason: "stale-event" };
+      }
+    }
+
+    // 2. Rate limit: bound how often the trigger may run at all, regardless
+    //    of individual event freshness — a burst of distinct-enough replays
+    //    within the freshness window is still bounded here.
+    if (!rateLimiter.tryAcquire(now())) {
+      return { status: 200, body: { status: "ok" }, skippedReason: "rate-limited" };
     }
 
     // The payload is UNTRUSTED and IDs-only (ADR-06 Finding 1): this ONLY

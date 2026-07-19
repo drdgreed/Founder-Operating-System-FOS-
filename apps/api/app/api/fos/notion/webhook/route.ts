@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { NotionClient } from "@fos/notion";
 import { getDb } from "../../../../../lib/db.js";
 import { handleNotionWebhook } from "../../../../../lib/notion-webhook.js";
+import {
+  readBodyWithLimit,
+  RequestBodyTooLargeError,
+  DEFAULT_MAX_WEBHOOK_BODY_BYTES,
+} from "../../../../../lib/read-body-with-limit.js";
 
 /**
  * `POST /api/fos/notion/webhook` (issue #39, slice 0.2f) — the Notion
@@ -20,7 +25,18 @@ import { handleNotionWebhook } from "../../../../../lib/notion-webhook.js";
  * `lib/auth.ts`. Env is read at call time so tests can vary it per case.
  */
 export async function POST(req: NextRequest) {
-  const rawBody = await req.text();
+  // Body-size cap BEFORE anything else reads or hashes it (issue #41 item 2)
+  // — a public, unauthenticated-until-HMAC endpoint must not buffer/hash an
+  // attacker-supplied body of unbounded size.
+  let rawBody: string;
+  try {
+    rawBody = await readBodyWithLimit(req, DEFAULT_MAX_WEBHOOK_BODY_BYTES);
+  } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "payload too large" }, { status: 413 });
+    }
+    throw err;
+  }
   const signatureHeader = req.headers.get("x-notion-signature");
 
   const notionClient = new NotionClient({ fetchImpl: fetch });
@@ -37,6 +53,12 @@ export async function POST(req: NextRequest) {
     rawBody,
     signatureHeader,
   );
+  if (result.skippedReason) {
+    // Not an error — a deliberate, safe skip (issue #41 item 1). Logged at
+    // `warn` (not `error`) so it's visible without paging anyone; the poll
+    // loop remains authoritative either way.
+    console.warn(`[notion-webhook] fetch-latest trigger skipped: ${result.skippedReason}`);
+  }
   if (result.logError) {
     // The fetch-latest optimizer failed but the request is ack'd 200 (the
     // poll loop backstops correctness — see handleNotionWebhook). Record it

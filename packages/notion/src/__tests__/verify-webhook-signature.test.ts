@@ -58,6 +58,14 @@ describe("verifyNotionWebhookSignature (issue #39, slice 0.2f — ADR-06 Finding
     expect(() => verifyNotionWebhookSignature(rawBody, wrongSameLength, TOKEN)).not.toThrow();
     expect(verifyNotionWebhookSignature(rawBody, wrongSameLength, TOKEN)).toBe(false);
   });
+
+  it("SECURITY (issue #41 NIT): a completely missing header and a present-but-wrong-length header both verify false via the same code path (no early return before the HMAC compute)", () => {
+    const rawBody = JSON.stringify({ type: "page.properties_updated" });
+    // Both cases end up comparing a zeroed stand-in buffer against the real
+    // expected digest — neither short-circuits before computing the HMAC.
+    expect(verifyNotionWebhookSignature(rawBody, null, TOKEN)).toBe(false);
+    expect(verifyNotionWebhookSignature(rawBody, "sha256=ab", TOKEN)).toBe(false);
+  });
 });
 
 describe("resolveWebhookVerificationToken (credential-reference pattern)", () => {

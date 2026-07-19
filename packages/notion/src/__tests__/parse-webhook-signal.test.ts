@@ -88,4 +88,40 @@ describe("parseWebhookSignal (issue #39, slice 0.2f — ADR-06 Finding 1 & 2)", 
       pageId: "page-4",
     });
   });
+
+  it("FOS0-WHK-27 (issue #41): an event's top-level `timestamp` is extracted for replay/staleness bounding", () => {
+    const signal = parseWebhookSignal({
+      type: "page.properties_updated",
+      entity: { id: "page-5", type: "page" },
+      timestamp: "2026-07-19T12:00:00.000Z",
+    });
+    expect(signal).toEqual({
+      kind: "event",
+      eventType: "page.properties_updated",
+      pageId: "page-5",
+      timestamp: "2026-07-19T12:00:00.000Z",
+    });
+  });
+
+  it("an event with no timestamp field simply omits it (no staleness gate can apply)", () => {
+    const signal = parseWebhookSignal({
+      type: "page.properties_updated",
+      entity: { id: "page-6", type: "page" },
+    });
+    expect(signal).toEqual({
+      kind: "event",
+      eventType: "page.properties_updated",
+      pageId: "page-6",
+    });
+    expect("timestamp" in signal).toBe(false);
+  });
+
+  it("a non-string timestamp is ignored rather than surfaced as-is", () => {
+    const signal = parseWebhookSignal({
+      type: "page.properties_updated",
+      entity: { id: "page-7", type: "page" },
+      timestamp: 1753963200000,
+    });
+    expect("timestamp" in signal).toBe(false);
+  });
 });

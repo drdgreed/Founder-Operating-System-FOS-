@@ -1,7 +1,10 @@
 import { TokenBucketRateLimiter, sleep, type RateLimiterOptions } from "./rate-limiter.js";
 
 /** Notion API version this client targets (ADR-06 capability spike). */
-const NOTION_VERSION = "2026-03-01";
+// Verified against the live Notion API (2026-07-19): "2026-03-01" is REJECTED
+// with `missing_version`; the valid data-source-era versions are "2025-09-03"
+// and "2026-03-11". Using the latter.
+const NOTION_VERSION = "2026-03-11";
 const DEFAULT_BASE_URL = "https://api.notion.com/v1";
 
 // ADR-06 §5: 429/529, honor Retry-After.

@@ -40,6 +40,12 @@ export function resolveWebhookVerificationToken(
  *   throws on mismatched-length buffers) and always compares against a
  *   digest of FIXED length (32 bytes for SHA-256) that never depends on
  *   attacker input, so the length check leaks nothing.
+ * - The HMAC is computed and `timingSafeEqual` is run UNCONDITIONALLY, even
+ *   when the header is entirely absent (issue #41 NIT) — a missing header no
+ *   longer short-circuits before that work, which equalizes its timing
+ *   profile against a present-but-wrong header (both do a full compute +
+ *   compare). This closes a minor timing side-channel that revealed only
+ *   attacker-controlled header presence, never any part of the secret.
  * - Never logs the token, the provided signature, or the computed digest —
  *   callers must not either.
  */
@@ -48,20 +54,26 @@ export function verifyNotionWebhookSignature(
   signatureHeader: string | null | undefined,
   verificationToken: string,
 ): boolean {
-  if (!signatureHeader) return false;
+  const headerValue = signatureHeader ?? "";
 
   // Notion's documented header carries a `sha256=` prefix; tolerate a bare
   // hex digest too.
-  const provided = signatureHeader.startsWith("sha256=")
-    ? signatureHeader.slice("sha256=".length)
-    : signatureHeader;
+  const provided = headerValue.startsWith("sha256=")
+    ? headerValue.slice("sha256=".length)
+    : headerValue;
 
   // Buffer.from(_, "hex") never throws — invalid hex just truncates the
   // decoded buffer, which then fails the length check below.
   const providedBuf = Buffer.from(provided, "hex");
   const expectedBuf = createHmac("sha256", verificationToken).update(rawBody).digest();
+  const lengthMatches = providedBuf.length === expectedBuf.length;
 
-  if (providedBuf.length !== expectedBuf.length) return false;
+  // Always compare a FIXED-length buffer (a zeroed stand-in when the length
+  // doesn't match, incl. when the header was absent entirely) so every path
+  // — missing, malformed, wrong-length, or a present-but-wrong same-length
+  // digest — runs through the identical timingSafeEqual call.
+  const comparableProvided = lengthMatches ? providedBuf : Buffer.alloc(expectedBuf.length);
+  const isEqual = timingSafeEqual(comparableProvided, expectedBuf);
 
-  return timingSafeEqual(providedBuf, expectedBuf);
+  return lengthMatches && isEqual;
 }
