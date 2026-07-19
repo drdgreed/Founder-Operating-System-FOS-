@@ -104,4 +104,76 @@ describe("NotionClient (issue #24 — ADR-06 §5: rate-limited, Retry-After awar
     await expect(client.getPage("page-1")).rejects.toThrow(/FOS_NOTION_TOKEN/);
     expect(calls).toHaveLength(0);
   });
+
+  it("FOS0-ADP-12: a Retry-After far beyond the max is clamped to 60s, not honored verbatim", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      () => jsonResponse(429, {}, { "Retry-After": "999999999" }),
+      () => jsonResponse(200, { object: "page" }),
+    ]);
+    const client = new NotionClient({ fetchImpl, requestsPerSecond: 100 });
+
+    const promise = client.getPage("page-1");
+    await vi.advanceTimersByTimeAsync(59000);
+    expect(calls).toHaveLength(1); // still waiting out the clamped 60s, not 999999999s
+
+    await vi.advanceTimersByTimeAsync(1500);
+    const result = await promise;
+
+    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ object: "page" });
+  });
+
+  it("FOS0-ADP-13: a non-numeric Retry-After falls back to the 1s default, not an immediate retry", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      () => jsonResponse(429, {}, { "Retry-After": "not-a-number" }),
+      () => jsonResponse(200, { object: "page" }),
+    ]);
+    const client = new NotionClient({ fetchImpl, requestsPerSecond: 100 });
+
+    const promise = client.getPage("page-1");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(calls).toHaveLength(1); // NaN must not collapse to an immediate (0ms) retry
+
+    await vi.advanceTimersByTimeAsync(600);
+    const result = await promise;
+
+    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ object: "page" });
+  });
+
+  it("FOS0-ADP-14: an HTTP-date Retry-After (RFC 7231 form) waits until that date, then retries", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      () => jsonResponse(429, {}, { "Retry-After": new Date(Date.now() + 40000).toUTCString() }),
+      () => jsonResponse(200, { object: "page" }),
+    ]);
+    const client = new NotionClient({ fetchImpl, requestsPerSecond: 100 });
+
+    const promise = client.getPage("page-1");
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(calls).toHaveLength(1); // still waiting out the ~40s until the HTTP-date
+
+    await vi.advanceTimersByTimeAsync(25000);
+    const result = await promise;
+
+    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ object: "page" });
+  });
+
+  it("FOS0-ADP-15: a negative Retry-After falls back to the 1s default rather than retrying immediately", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      () => jsonResponse(429, {}, { "Retry-After": "-5" }),
+      () => jsonResponse(200, { object: "page" }),
+    ]);
+    const client = new NotionClient({ fetchImpl, requestsPerSecond: 100 });
+
+    const promise = client.getPage("page-1");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(calls).toHaveLength(1); // a negative value must not collapse to an immediate retry
+
+    await vi.advanceTimersByTimeAsync(600);
+    const result = await promise;
+
+    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ object: "page" });
+  });
 });

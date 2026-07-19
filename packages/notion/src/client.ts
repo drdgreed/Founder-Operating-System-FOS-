@@ -10,6 +10,45 @@ const DEFAULT_BASE_URL = "https://api.notion.com/v1";
 // ADR-06 §5: 429/529, honor Retry-After.
 const RETRYABLE_STATUS_CODES = new Set([429, 529]);
 
+// Issue #26: a hostile/buggy server must not be able to dictate an
+// unbounded (or setTimeout 32-bit-ms-overflow) block via Retry-After.
+const DEFAULT_RETRY_AFTER_SECONDS = 1;
+const MAX_RETRY_AFTER_SECONDS = 60;
+
+// All three RFC 7231 §7.1.1.1 HTTP-date forms (IMF-fixdate, obsolete RFC 850,
+// obsolete asctime) start with a weekday name followed by `, ` or a space
+// then a month abbreviation. Gating Date.parse on this keeps numeric-looking
+// junk (e.g. "-5") from being misread as a date — V8's Date.parse is lenient
+// enough to resolve such strings to an unrelated real date instead of NaN.
+const HTTP_DATE_PREFIX_RE = /^[A-Za-z]{3,9},\s|^[A-Za-z]{3}\s[A-Za-z]{3}\s/;
+
+/**
+ * Parses a `Retry-After` header per RFC 7231 §7.1.3: either a non-negative
+ * integer number of seconds, or an HTTP-date. Falls back to the default on
+ * anything non-numeric, negative, or NaN (a raw `Number(dateString)` is
+ * NaN, so the HTTP-date form lands here too rather than retrying instantly).
+ * The result is always clamped to `MAX_RETRY_AFTER_SECONDS`.
+ */
+function parseRetryAfterSeconds(headerValue: string | null): number {
+  if (headerValue === null) return DEFAULT_RETRY_AFTER_SECONDS;
+
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
+  }
+
+  if (HTTP_DATE_PREFIX_RE.test(headerValue)) {
+    const dateMs = Date.parse(headerValue);
+    if (!Number.isNaN(dateMs)) {
+      const deltaSeconds = (dateMs - Date.now()) / 1000;
+      if (deltaSeconds <= 0) return 0;
+      return Math.min(deltaSeconds, MAX_RETRY_AFTER_SECONDS);
+    }
+  }
+
+  return DEFAULT_RETRY_AFTER_SECONDS;
+}
+
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface NotionClientOptions extends RateLimiterOptions {
@@ -71,7 +110,7 @@ export class NotionClient {
       }
 
       if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.maxRetries) {
-        const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "1");
+        const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get("Retry-After"));
         await sleep(retryAfterSeconds * 1000);
         continue;
       }
