@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { enrollmentOpportunity, projection, workspaceCommand } from "@fos/db/schema";
 import type { Db } from "@fos/db/services";
@@ -7,6 +8,21 @@ import {
   type EnrollmentOpportunityRow,
 } from "./enrollment-opportunity-mapper.js";
 import { readNumberProperty, readRichTextProperty } from "./notion-properties.js";
+
+/**
+ * `payload_hash` (PR #31 review, ADR-06 line 19's "property-hash"): a
+ * stable digest of the diff itself, independent of key order. Two
+ * reconcile passes over the same page produce the same hash iff the
+ * founder-editable diff is identical — so two DISTINCT edits that happen
+ * to land in the same `last_edited_time` tick (a coarser clock than a
+ * founder can realistically beat) still get two commands, instead of the
+ * second (correct, larger) diff silently losing the
+ * `onConflictDoNothing` race against the first.
+ */
+function computePayloadHash(changes: Record<string, { from: string | null; to: string | null }>) {
+  const sortedEntries = Object.entries(changes).sort(([a], [b]) => a.localeCompare(b));
+  return createHash("sha256").update(JSON.stringify(sortedEntries)).digest("hex");
+}
 
 export interface ReconcileInput {
   workspaceId: string;
@@ -284,6 +300,7 @@ async function reconcilePage(
       providerPageId: pageId,
       commandType: "propose_field_update",
       payloadJson: { changes: editableChanges, providerFosVersion },
+      payloadHash: computePayloadHash(editableChanges),
       providerLastEditedAt: lastEditedTime,
     })
     .onConflictDoNothing({
@@ -291,6 +308,7 @@ async function reconcilePage(
         workspaceCommand.provider,
         workspaceCommand.providerPageId,
         workspaceCommand.providerLastEditedAt,
+        workspaceCommand.payloadHash,
       ],
     })
     .returning();

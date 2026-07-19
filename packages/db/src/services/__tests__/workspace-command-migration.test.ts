@@ -37,6 +37,7 @@ describe("workspace_command entity round-trip (spec §11.5-derived, issue #30)",
           providerPageId: "notion-page-1",
           commandType: "propose_field_update",
           payloadJson: { changes: { nextActionSummary: { from: null, to: "Call Tuesday" } } },
+          payloadHash: "hash-1",
           providerLastEditedAt: new Date("2026-07-18T12:00:00Z"),
         })
         .returning();
@@ -79,6 +80,7 @@ describe("workspace_command entity round-trip (spec §11.5-derived, issue #30)",
           providerPageId: "notion-page-1",
           commandType: "propose_field_update",
           payloadJson: {},
+          payloadHash: "hash-1",
           providerLastEditedAt: new Date(),
         }),
       ).rejects.toThrow();
@@ -87,7 +89,7 @@ describe("workspace_command entity round-trip (spec §11.5-derived, issue #30)",
     }
   });
 
-  it("FOS0-RCN-04: UNIQUE (provider, provider_page_id, provider_last_edited_at) rejects a duplicate (page, edit-time) pair", async () => {
+  it("FOS0-RCN-04: UNIQUE (provider, provider_page_id, provider_last_edited_at, payload_hash) rejects an identical (page, edit-time, diff) triple", async () => {
     const ctx = await createTestDb();
     try {
       const { workspace, product } = await seedWorkspaceAndProduct(ctx.db);
@@ -107,6 +109,7 @@ describe("workspace_command entity round-trip (spec §11.5-derived, issue #30)",
         providerPageId: "notion-page-1",
         commandType: "propose_field_update",
         payloadJson: {},
+        payloadHash: "hash-1",
         providerLastEditedAt: editedAt,
       });
 
@@ -119,9 +122,58 @@ describe("workspace_command entity round-trip (spec §11.5-derived, issue #30)",
           providerPageId: "notion-page-1",
           commandType: "propose_field_update",
           payloadJson: {},
+          payloadHash: "hash-1",
           providerLastEditedAt: editedAt,
         }),
       ).rejects.toThrow();
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it("FOS0-RCN-12: a DIFFERENT payload_hash at the same (page, edit-time) is allowed — two distinct edits in one tick both persist (PR #31 review fix)", async () => {
+    const ctx = await createTestDb();
+    try {
+      const { workspace, product } = await seedWorkspaceAndProduct(ctx.db);
+      const person = await seedPerson(ctx.db, workspace.id);
+      const opportunity = await seedOpportunity(ctx.db, {
+        workspaceId: workspace.id,
+        productId: product.id,
+        personId: person.id,
+      });
+      const editedAt = new Date("2026-07-18T12:00:00Z");
+
+      await ctx.db.insert(workspaceCommand).values({
+        workspaceId: workspace.id,
+        entityType: "EnrollmentOpportunity",
+        entityId: opportunity.id,
+        provider: "notion",
+        providerPageId: "notion-page-1",
+        commandType: "propose_field_update",
+        payloadJson: { changes: { nextActionSummary: { from: null, to: "First edit" } } },
+        payloadHash: "hash-1",
+        providerLastEditedAt: editedAt,
+      });
+
+      await ctx.db.insert(workspaceCommand).values({
+        workspaceId: workspace.id,
+        entityType: "EnrollmentOpportunity",
+        entityId: opportunity.id,
+        provider: "notion",
+        providerPageId: "notion-page-1",
+        commandType: "propose_field_update",
+        payloadJson: {
+          changes: { nextActionSummary: { from: null, to: "First edit then second edit" } },
+        },
+        payloadHash: "hash-2",
+        providerLastEditedAt: editedAt,
+      });
+
+      const rows = await ctx.db
+        .select()
+        .from(workspaceCommand)
+        .where(eq(workspaceCommand.providerPageId, "notion-page-1"));
+      expect(rows).toHaveLength(2);
     } finally {
       await ctx.close();
     }

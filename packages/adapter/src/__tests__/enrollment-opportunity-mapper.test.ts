@@ -108,4 +108,22 @@ describe("enrollmentOpportunityToNotionProperties (issue #27, §C1/§C2)", () =>
 
     expect(properties["FOS Version"]).toEqual({ number: 7 });
   });
+
+  it("FOS0-PRJ-12: projects Next Action Summary from opp.nextActionSummary (empty rich_text when null)", () => {
+    const withSummary = makeOpportunity({ nextActionSummary: "Call founder Tuesday" });
+    const withoutSummary = makeOpportunity({ nextActionSummary: null });
+    const ctx = {
+      workspaceId: "ws-1",
+      productId: "prod-1",
+      syncStatus: "in_sync" as const,
+      lastSyncedAt: new Date("2026-07-18T12:00:00Z"),
+    };
+
+    expect(
+      enrollmentOpportunityToNotionProperties(withSummary, ctx)["Next Action Summary"],
+    ).toEqual({ rich_text: [{ text: { content: "Call founder Tuesday" } }] });
+    expect(
+      enrollmentOpportunityToNotionProperties(withoutSummary, ctx)["Next Action Summary"],
+    ).toEqual({ rich_text: [] });
+  });
 });

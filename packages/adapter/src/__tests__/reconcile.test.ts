@@ -367,4 +367,97 @@ describe("reconcile (issue #30, slice 0.2c)", () => {
       await close();
     }
   });
+
+  it("FOS0-RCN-13: a page carrying the SAME value the outbound mapper projects (no real founder edit) produces zero commands (PR #31 review — phantom-clear regression)", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      const { opportunity } = await seedOpportunity(db, {
+        stage: "new_lead",
+        nextActionSummary: "Existing note from before this slice",
+      });
+      const syncedAt = new Date("2026-07-18T12:00:00Z");
+      await seedProjection(db, {
+        workspaceId: opportunity.workspaceId,
+        productId: opportunity.productId,
+        entityId: opportunity.id,
+        providerPageId: "notion-page-1",
+        fosVersion: opportunity.version,
+        lastSyncedAt: syncedAt,
+      });
+      // last_edited_time advanced (e.g. an edit to an unmapped property),
+      // but every RECONCILED property still matches exactly what the
+      // outbound mapper would have written — no founder edit to either
+      // Stage or Next Action Summary actually happened.
+      const page = buildPage({
+        pageId: "notion-page-1",
+        lastEditedTime: "2026-07-18T13:00:00Z",
+        fosRecordId: opportunity.id,
+        stage: "new_lead",
+        nextActionSummary: "Existing note from before this slice",
+      });
+      const client = makeMockNotion([page]);
+
+      const result = await reconcile(db, client, {
+        workspaceId: opportunity.workspaceId,
+        dataSourceId: "data-source-1",
+      });
+
+      expect(result.commandsCreated).toBe(0);
+      expect(result.conflicts).toBe(0);
+      expect(await db.select().from(workspaceCommand)).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("FOS0-RCN-14: two distinct founder edits landing at the SAME last_edited_time both persist as separate commands (PR #31 review — same-tick command-loss regression)", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      const { opportunity } = await seedOpportunity(db, {
+        stage: "new_lead",
+        nextActionSummary: null,
+      });
+      const syncedAt = new Date("2026-07-18T12:00:00Z");
+      await seedProjection(db, {
+        workspaceId: opportunity.workspaceId,
+        productId: opportunity.productId,
+        entityId: opportunity.id,
+        providerPageId: "notion-page-1",
+        fosVersion: opportunity.version,
+        lastSyncedAt: syncedAt,
+      });
+      const sameTick = "2026-07-18T13:00:00Z";
+      const page = buildPage({
+        pageId: "notion-page-1",
+        lastEditedTime: sameTick,
+        fosRecordId: opportunity.id,
+        stage: "new_lead",
+        nextActionSummary: "First edit",
+      });
+      const client = makeMockNotion([page]);
+      const args = { workspaceId: opportunity.workspaceId, dataSourceId: "data-source-1" };
+
+      const first = await reconcile(db, client, args);
+      expect(first.commandsCreated).toBe(1);
+
+      // A second founder edit lands before Notion's last_edited_time tick
+      // advances (coarser than a founder can realistically beat) — the
+      // page's CURRENT value now reflects both edits combined.
+      page.properties["Next Action Summary"] = {
+        rich_text: [{ plain_text: "First edit then second edit" }],
+      };
+      const second = await reconcile(db, client, args);
+      expect(second.commandsCreated).toBe(1); // NOT 0 — the second, larger diff must not be dropped
+
+      const commands = await db.select().from(workspaceCommand);
+      expect(commands).toHaveLength(2);
+      const diffs = commands.map((c) => (c.payloadJson as { changes: unknown }).changes);
+      expect(diffs).toContainEqual({ nextActionSummary: { from: null, to: "First edit" } });
+      expect(diffs).toContainEqual({
+        nextActionSummary: { from: null, to: "First edit then second edit" },
+      });
+    } finally {
+      await close();
+    }
+  });
 });

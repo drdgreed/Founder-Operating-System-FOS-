@@ -49,6 +49,16 @@ export function enrollmentOpportunityToNotionProperties(
     // --- visible fields (minimal per issue #27; full §13.2 property set +
     // §8.2/§11.3 policy enforcement is deferred to a later slice) ---
     Stage: { select: { name: opp.stage } },
+    // Added by issue #30 (slice 0.2c) alongside `enrollmentOpportunityReconcilableFields`
+    // below: reconcile() reads this property back and diffs it against
+    // `opp.nextActionSummary`. It MUST be written here too — an unwritten
+    // property reads back as empty on every page regardless of the
+    // canonical value, which fabricated a phantom "clear" workspace_command
+    // on the first reconcile of any opportunity with a non-null
+    // `nextActionSummary` (PR #31 review finding). Writing it here keeps
+    // outbound projection and inbound reconciliation symmetric: a page no
+    // founder has touched reads back exactly what was last projected.
+    "Next Action Summary": richText(opp.nextActionSummary),
   };
 }
 
@@ -62,20 +72,19 @@ export type FieldOwnership = "canonical_read_only" | "working_copy_editable";
  * its §8.1 ownership class (which decides command-vs-conflict per §8.3).
  *
  * FLAG (PATCH-SET candidate — founder-editable field set underspecified):
- * 0.2b's mapper only ever WRITES `Stage` (marked `canonical_read_only`
- * there, per spec §8.1's own "Opportunity stage" example) — no
- * `working_copy_editable` EnrollmentOpportunity property exists yet in the
- * outbound projection. Spec §8.1's `working_copy_editable` examples
- * ("Founder annotations", "research notes", "open questions") are
- * artifact-shaped, not enumerated for EnrollmentOpportunity specifically.
- * `next_action_summary` is the closest existing canonical field to that
- * archetype (a founder's free-text working note on the opportunity), so
- * this slice adopts it as the minimal defensible founder-editable field to
- * make the reconcile command path real rather than untestable. This is a
- * genuine business-fact choice, not a mechanical default — it needs a
- * founder/product sign-off pass into a real ProjectionPolicy record
- * (§11.3) and, if kept, a corresponding outbound-mapper change so Notion
- * actually surfaces "Next Action Summary" as an editable property.
+ * 0.2b's mapper only ever wrote `Stage` (marked `canonical_read_only`
+ * there, per spec §8.1's own "Opportunity stage" example). Spec §8.1's
+ * `working_copy_editable` examples ("Founder annotations", "research
+ * notes", "open questions") are artifact-shaped, not enumerated for
+ * EnrollmentOpportunity specifically. `next_action_summary` is the closest
+ * existing canonical field to that archetype (a founder's free-text
+ * working note on the opportunity), so this slice adopts it as the minimal
+ * defensible founder-editable field and now ALSO projects it outbound (see
+ * `enrollmentOpportunityToNotionProperties` above) so the property actually
+ * round-trips instead of reconciling against a property Notion never
+ * carried. This is still a genuine business-fact choice, not a mechanical
+ * default — it needs a founder/product sign-off pass into a real
+ * ProjectionPolicy record (§11.3).
  */
 export const enrollmentOpportunityReconcilableFields = {
   stage: {

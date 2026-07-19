@@ -1,5 +1,5 @@
 {
-  "id": "ee4c0ac8-be55-4363-bfc9-a0e0c82dd5bf",
+  "id": "8f987fd4-b411-40d4-b3e7-66668716e60b",
   "prevId": "f5ba14b5-1ea1-4409-93b9-ef09239dec16",
   "version": "7",
   "dialect": "postgresql",
@@ -1522,6 +1522,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "payload_hash": {
+          "name": "payload_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "status": {
           "name": "status",
           "type": "workspace_command_status",
@@ -1577,6 +1583,12 @@
             },
             {
               "expression": "provider_last_edited_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "payload_hash",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
