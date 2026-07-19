@@ -1,0 +1,60 @@
+{
+  "fixture_id": "enrollment_brief.strong_fit",
+  "agent_key": "fos.enrollment_brief",
+  "description": "A well-qualified, clearly-articulated applicant with a straightforward pathway match. The baseline 'everything works' case.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "stage": "reviewing",
+      "primaryGoal": "Transition into a senior data analyst role",
+      "targetRole": "Senior Data Analyst",
+      "targetTimeline": "3 months"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "currentRole": "Data Analyst",
+      "currentCompany": "Acme Corp",
+      "location": "Remote"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "formVersion": "v1",
+      "sourceReference": "website_application"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I want to move from a generalist analyst role into a senior, specialized analytics position within 3 months."
+      },
+      {
+        "sourceRef": "person.current_role",
+        "sourceType": "person_field",
+        "content": "Currently a Data Analyst at Acme Corp, 4 years experience with SQL and Python."
+      },
+      {
+        "sourceRef": "application.raw_payload.availability",
+        "sourceType": "application_field",
+        "content": "Available 10 hours/week for coursework, evenings and weekends."
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "every observedFacts[] entry cites a sourceRef present in evidenceRecords",
+      "fitStatus is strong_fit or possible_fit given the clear role/timeline/experience alignment",
+      "recommendedPathway is one of availablePathways",
+      "no guarantee language anywhere in candidateSummary/fitRationale/nextAction"
+    ]
+  }
+}

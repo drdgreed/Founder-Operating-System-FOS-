@@ -1,0 +1,49 @@
+{
+  "fixture_id": "enrollment_brief.contradictory_history",
+  "agent_key": "fos.enrollment_brief",
+  "description": "The application and a prior interaction note disagree (e.g. stated availability vs. an earlier call note saying the applicant is fully booked). The agent must surface the contradiction as a risk flag / unknown rather than silently pick one side and assert it as an uncontested fact.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000021",
+      "stage": "contacted"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000022",
+      "firstName": "Jordan",
+      "lastName": "Kim",
+      "currentRole": "Product Manager"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000023",
+      "formVersion": "v1",
+      "sourceReference": "referral"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.availability",
+        "sourceType": "application_field",
+        "content": "I can commit 15 hours a week starting immediately."
+      },
+      {
+        "sourceRef": "interaction.call_note.2026-07-10",
+        "sourceType": "interaction_note",
+        "content": "Founder call note: applicant mentioned they are fully booked at work through the next quarter and unsure when they'd have bandwidth."
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "both conflicting statements may appear as separate observedFacts, each citing its own sourceRef, OR the conflict is named directly in riskFlags/unknowns",
+      "the brief does NOT assert a single unqualified availability fact that silently discards the contradicting source",
+      "fitConfidence reflects the uncertainty (not 'high')"
+    ]
+  }
+}

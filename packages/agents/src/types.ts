@@ -1,7 +1,7 @@
 import type { ZodType } from "zod";
 import type { EventActor } from "@fos/contracts";
 import type { ArtifactDomain, ArtifactType } from "@fos/db/schema";
-import type { Db } from "@fos/db/services";
+import type { CreateArtifactResult, Db } from "@fos/db/services";
 import type { NotionClient } from "@fos/notion";
 import type { Gate } from "./gates/gate.js";
 import type { ModelClient } from "./model-client.js";
@@ -65,6 +65,12 @@ export interface ProjectionHookContext {
   mode: FeatureMode;
 }
 
+export interface PersistDomainHookContext {
+  deps: RunAgentDeps;
+  runContext: RunAgentContext;
+  agentRunId: string;
+}
+
 /**
  * Agent-definition contract (ADR-07 D3): versioned CODE, not data. Definitions
  * live in `src/definitions/` and are registered by `key`.
@@ -87,6 +93,22 @@ export interface AgentDefinition<TInput, TOutput> {
   /** `feature_flag.key` this definition reads at stage 2. */
   featureFlagKey: string;
   artifact: ArtifactSpec<TInput, TOutput>;
+  /**
+   * Optional stage-9 domain-persistence hook (issue #53): writes the agent's
+   * own domain-specific canonical record (e.g. `enrollment_assessment`) right
+   * after `createArtifact`, INSIDE stage 9's try block. Unlike the isolated
+   * stage-11 projection, a `persistDomain` failure IS a run failure — this is
+   * canonical state, not a best-effort external side effect, so it must fail
+   * closed like any other stage-9 write. Optional: omitted by definitions
+   * with no domain record to persist (e.g. the `fos.smoke` stub), which keep
+   * working unchanged.
+   */
+  persistDomain?: (
+    ctx: PersistDomainHookContext,
+    input: TInput,
+    output: TOutput,
+    artifactResult: CreateArtifactResult,
+  ) => Promise<void>;
   /**
    * Optional stage-11 projection hook (REUSE `projectOpportunity`-shaped
    * adapters). Omitted by definitions with nothing to project (e.g. the

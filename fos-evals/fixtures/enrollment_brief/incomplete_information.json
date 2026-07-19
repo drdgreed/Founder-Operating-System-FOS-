@@ -1,0 +1,46 @@
+{
+  "fixture_id": "enrollment_brief.incomplete_information",
+  "agent_key": "fos.enrollment_brief",
+  "description": "A sparse application with almost no qualifying detail. The agent must surface unknowns/riskFlags rather than fabricate observed facts or a confident fit verdict.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "stage": "new_lead"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "firstName": "Sam",
+      "lastName": "Rivera"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "formVersion": "v1",
+      "sourceReference": "website_lead_form"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.note",
+        "sourceType": "application_field",
+        "content": "Interested, please send more info."
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "observedFacts is empty or contains only the one sourceRef actually present",
+      "unknowns[] is non-empty (e.g. no stated goal, no stated experience, no stated timeline)",
+      "readiness is insufficient_information",
+      "recommendedPathway is the 'undetermined' sentinel, NOT a guessed pathway",
+      "no fabricated observedFacts entry claims something not present in evidenceRecords"
+    ],
+    "notes": "This is the primary no-fabrication regression fixture: a model that invents a plausible-sounding fact to fill the gap must be caught by factsResolveToSources at the gate layer, and the eval grader should flag it as a critical failure even if the structured output otherwise validates."
+  }
+}
