@@ -15,6 +15,9 @@
  *
  * Slice 0.2a ("Notion adapter client + entity") adds:
  *   workspace_integration (§11.1) — a provider adapter connection.
+ *
+ * Slice 0.2b ("Notion projection layer") adds:
+ *   projection — the canonical<->provider page mapping record (§11.4-derived).
  */
 export * from "./fos_workspace.js";
 export * from "./product.js";
@@ -26,3 +29,4 @@ export * from "./artifact_record.js";
 export * from "./artifact_version.js";
 export * from "./approval.js";
 export * from "./workspace_integration.js";
+export * from "./projection.js";
