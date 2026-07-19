@@ -315,4 +315,122 @@ describe("captureStageCommands (issue #33, slice 0.2d — controlled-command cap
       await close();
     }
   });
+
+  it("FOS0-CMD-07: a SECOND distinct Stage edit at the SAME version is captured, not dropped (ADR-06 property-hash key)", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      const { opportunity } = await seedOpportunity(db, { version: 1, stage: "new_lead" });
+      await seedProjection(db, {
+        workspaceId: opportunity.workspaceId,
+        productId: opportunity.productId,
+        entityId: opportunity.id,
+        providerPageId: "notion-page-1",
+        fosVersion: 1,
+      });
+      const args = {
+        workspaceId: opportunity.workspaceId,
+        dataSourceId: "data-source-1",
+        workspaceIntegrationId: null,
+      };
+
+      // First edit new_lead -> contacted, captured against version 1.
+      const firstEdit = await captureStageCommands(
+        db,
+        makeMockNotion([
+          buildPage({
+            pageId: "notion-page-1",
+            fosRecordId: opportunity.id,
+            fosVersion: 1,
+            stage: "contacted",
+          }),
+        ]),
+        args,
+      );
+      // A DIFFERENT edit before 0.2e bumps the version: canonical is still
+      // new_lead / v1, but the page now shows conversation_scheduled. Without
+      // the payload in the idempotency key this would collide with the first
+      // and be silently dropped.
+      const secondEdit = await captureStageCommands(
+        db,
+        makeMockNotion([
+          buildPage({
+            pageId: "notion-page-1",
+            fosRecordId: opportunity.id,
+            fosVersion: 1,
+            stage: "conversation_scheduled",
+          }),
+        ]),
+        args,
+      );
+
+      expect(firstEdit.proposed).toBe(1);
+      expect(secondEdit.proposed).toBe(1);
+      expect(secondEdit.duplicatesDeduped).toBe(0);
+
+      const commands = await readCommands(db, opportunity.id);
+      expect(commands).toHaveLength(2);
+      const tos = commands.map((c) => (c.payloadJson as { to: string }).to).sort();
+      expect(tos).toEqual(["contacted", "conversation_scheduled"]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("FOS0-CMD-08: a legal correction after a rejected illegal edit at the same version is captured, not blocked", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      const { opportunity } = await seedOpportunity(db, { version: 1, stage: "new_lead" });
+      await seedProjection(db, {
+        workspaceId: opportunity.workspaceId,
+        productId: opportunity.productId,
+        entityId: opportunity.id,
+        providerPageId: "notion-page-1",
+        fosVersion: 1,
+      });
+      const args = {
+        workspaceId: opportunity.workspaceId,
+        dataSourceId: "data-source-1",
+        workspaceIntegrationId: null,
+      };
+
+      // Founder first types garbage -> rejected.
+      const bad = await captureStageCommands(
+        db,
+        makeMockNotion([
+          buildPage({
+            pageId: "notion-page-1",
+            fosRecordId: opportunity.id,
+            fosVersion: 1,
+            stage: "Closed-Won (custom)",
+          }),
+        ]),
+        args,
+      );
+      // Then corrects to a legal stage at the SAME version — must NOT be
+      // blocked by the rejected row occupying the key.
+      const fixed = await captureStageCommands(
+        db,
+        makeMockNotion([
+          buildPage({
+            pageId: "notion-page-1",
+            fosRecordId: opportunity.id,
+            fosVersion: 1,
+            stage: "contacted",
+          }),
+        ]),
+        args,
+      );
+
+      expect(bad.rejectedIllegalStage).toBe(1);
+      expect(fixed.proposed).toBe(1);
+      expect(fixed.duplicatesDeduped).toBe(0);
+
+      const commands = await readCommands(db, opportunity.id);
+      const received = commands.filter((c) => c.status === "received");
+      expect(received).toHaveLength(1);
+      expect((received[0]!.payloadJson as { to: string }).to).toBe("contacted");
+    } finally {
+      await close();
+    }
+  });
 });

@@ -87,10 +87,12 @@ function deriveCommandIdempotencyKey(integrationId: string, providerEventId: str
  *   `rejection_reason` — never let an invalid provider value become an
  *   actionable command.
  *
- * `idempotency_key` derives from `sourceProviderRecordId` (page id) + the
- * captured `target_version`, so re-polling the SAME edit dedups via
- * `onConflictDoNothing` on the UNIQUE `idempotency_key`, while a genuinely new
- * edit (a later version, after 0.2e executes the prior command) is distinct.
+ * `idempotency_key` derives from the page id + captured `target_version` + a
+ * hash of the proposed `{from,to}` Stage transition (ADR-06's `page_id +
+ * property-hash`), so re-polling the SAME edit dedups via `onConflictDoNothing`
+ * on the UNIQUE `idempotency_key`, while a DIFFERENT edit — whether at a later
+ * version (post-0.2e execution) or a second edit at the same version before
+ * execution — is captured distinctly.
  */
 export async function captureStageCommands(
   db: Db,
@@ -178,10 +180,19 @@ async function captureForPage(
 
   const isLegalStage = LEGAL_STAGES.has(pageStage);
   const pageId = typeof page.id === "string" ? page.id : entityId;
-  // Derives from the page id + the captured target_version: re-polling the
-  // SAME edit (same page, same version) dedups; a later edit against a new
-  // version (post-0.2e execution) is a distinct provider_event_id.
-  const providerEventId = `${pageId}:${opportunity.version}`;
+  // ADR-06 (line 19): captured commands dedup on `page_id + property-hash +
+  // nonce`. The property-hash — here a hash of the proposed `{from,to}` Stage
+  // transition — is load-bearing: capture never bumps the version (only 0.2e
+  // does, after approval), so WITHOUT the payload in the key a second, DIFFERENT
+  // edit made before execution would share `pageId:version` with the first and
+  // be silently dropped by onConflictDoNothing, leaving a stale command queued.
+  // With it: a true re-poll of one edit (same from/to) still dedups, while a
+  // genuinely different edit at the same version is captured distinctly (0.2e's
+  // §8.3 version guard resolves multiple pending commands at execution time).
+  const payloadHash = createHash("sha256")
+    .update(`${opportunity.stage}:${pageStage}`)
+    .digest("hex");
+  const providerEventId = `${pageId}:${opportunity.version}:${payloadHash}`;
   const integrationIdForHash = workspaceIntegrationId ?? dataSourceId;
   const idempotencyKey = deriveCommandIdempotencyKey(integrationIdForHash, providerEventId);
 
