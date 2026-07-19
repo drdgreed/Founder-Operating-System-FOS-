@@ -45,7 +45,7 @@ describe("NotionClient (issue #24 — ADR-06 §5: rate-limited, Retry-After awar
     expect(calls).toHaveLength(1);
     const headers = calls[0]!.init!.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-token");
-    expect(headers["Notion-Version"]).toBe("2026-03-01");
+    expect(headers["Notion-Version"]).toBe("2026-03-11");
   });
 
   it("FOS0-ADP-08: a 429 with Retry-After waits that long, then retries and succeeds", async () => {
