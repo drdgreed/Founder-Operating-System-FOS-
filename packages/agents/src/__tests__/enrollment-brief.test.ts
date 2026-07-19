@@ -504,4 +504,76 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     const assessments = await ctx.db.select().from(enrollmentAssessment);
     expect(assessments).toHaveLength(0);
   });
+
+  it("FOS1-BRIEF-09: a prohibited guarantee hidden in an observedFact statement is STILL blocked (gate scans every rendered field)", async () => {
+    const fixture = await seedEnrollmentBriefFixture(ctx.db);
+    await setFeatureFlag(ctx.db, {
+      workspaceId: fixture.workspace.id,
+      key: FOS_ENROLLMENT_BRIEF_FEATURE_FLAG_KEY,
+      enabled: true,
+      mode: "review",
+    });
+    // The guarantee is smuggled into an observedFact (with a RESOLVING sourceRef,
+    // so factsResolveToSources passes) rather than a narrative field — it must
+    // still be caught now that the gate scans observedFacts/inferences too.
+    const modelClient = new FakeModelClient([
+      validResult(
+        buildOutput({
+          observedFacts: [
+            {
+              statement: "The program guarantees a job offer within 30 days of completion.",
+              sourceRef: "person.current_role",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient, notionClient: makeMockNotion("p").client },
+      fosEnrollmentBriefAgentDefinition,
+      buildInput(fixture),
+      runContext,
+    );
+
+    expect(result.status).toBe("policy_blocked");
+    expect(result.artifact).toBeUndefined();
+    expect(await ctx.db.select().from(enrollmentAssessment)).toHaveLength(0);
+  });
+
+  it("FOS1-BRIEF-10: a cross-workspace opportunity id is rejected — persistDomain fails the run (defense-in-depth)", async () => {
+    const mine = await seedEnrollmentBriefFixture(ctx.db);
+    const theirs = await seedEnrollmentBriefFixture(ctx.db);
+    expect(theirs.workspace.id).not.toBe(mine.workspace.id);
+    await setFeatureFlag(ctx.db, {
+      workspaceId: mine.workspace.id,
+      key: FOS_ENROLLMENT_BRIEF_FEATURE_FLAG_KEY,
+      enabled: true,
+      mode: "review",
+    });
+    const modelClient = new FakeModelClient([validResult(buildOutput())]);
+    // runContext is MY workspace, but the input targets THEIR opportunity.
+    const runContext: RunAgentContext = {
+      workspaceId: mine.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    await expect(
+      runAgent(
+        { db: ctx.db, modelClient, notionClient: makeMockNotion("p").client },
+        fosEnrollmentBriefAgentDefinition,
+        buildInput(theirs),
+        runContext,
+      ),
+    ).rejects.toThrow(/not in workspace/);
+
+    // No canonical assessment written against the cross-tenant opportunity.
+    expect(await ctx.db.select().from(enrollmentAssessment)).toHaveLength(0);
+  });
 });

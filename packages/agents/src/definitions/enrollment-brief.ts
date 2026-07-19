@@ -2,12 +2,37 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { enrollmentOpportunity } from "@fos/db/schema";
 import { recordEnrollmentAssessment } from "@fos/db/services";
+import type { Db } from "@fos/db/services";
 import { projectOpportunity } from "@fos/adapter";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
 import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { recommendedPathwayAvailableGate } from "../gates/recommended-pathway-available.js";
 import type { AgentDefinition } from "../types.js";
+
+/**
+ * Re-reads the target opportunity and asserts it belongs to this run's
+ * workspace before ANY canonical write against it (issue #53 security review):
+ * never trust a caller-supplied `opportunity.id` across the workspace boundary
+ * — a confused-deputy caller must not be able to write an assessment or project
+ * against another workspace's opportunity. Returns the canonical row for reuse.
+ */
+async function loadOwnedOpportunity(db: Db, opportunityId: string, workspaceId: string) {
+  const [row] = await db
+    .select()
+    .from(enrollmentOpportunity)
+    .where(eq(enrollmentOpportunity.id, opportunityId))
+    .limit(1);
+  if (!row) {
+    throw new Error(`fos.enrollment_brief: enrollment_opportunity ${opportunityId} not found`);
+  }
+  if (row.workspaceId !== workspaceId) {
+    throw new Error(
+      `fos.enrollment_brief: opportunity ${opportunityId} is not in workspace ${workspaceId}`,
+    );
+  }
+  return row;
+}
 
 /**
  * `fos.enrollment_brief` (issue #53, spec §8.1) — the first real business
@@ -171,12 +196,21 @@ export const fosEnrollmentBriefAgentDefinition: AgentDefinition<
     }),
     noProhibitedGuaranteeGate<EnrollmentBriefInput, EnrollmentBriefOutput>({
       key: "fos.enrollment_brief.no-prohibited-guarantee",
+      // The gate must scan EVERY field that `buildBodyMarkdown` renders into
+      // the canonical founder-facing brief (issue #53 security review): a
+      // prohibited guarantee otherwise reaches canonical state via an
+      // observedFact/inference/riskFlag/unknown statement, which the gate never
+      // sees. Keep this list in sync with `buildBodyMarkdown` below.
       selectText: (output) => [
         output.candidateSummary,
         output.fitRationale,
         output.nextAction,
         ...output.objections,
         ...output.discoveryQuestions,
+        ...output.observedFacts.map((f) => f.statement),
+        ...output.inferences.map((i) => i.statement),
+        ...output.riskFlags,
+        ...output.unknowns,
       ],
     }),
     recommendedPathwayAvailableGate<EnrollmentBriefInput, EnrollmentBriefOutput>({
@@ -242,7 +276,10 @@ export const fosEnrollmentBriefAgentDefinition: AgentDefinition<
   // Stage 9b (canonical): persists the versioned EnrollmentAssessment (spec
   // §6.4). A failure here fails the run — this is the agent's own domain
   // record, not a best-effort external side effect.
-  persistDomain: async ({ deps, agentRunId }, input, output) => {
+  persistDomain: async ({ deps, runContext, agentRunId }, input, output) => {
+    // Defense-in-depth: the assessment is canonical state — verify the target
+    // opportunity belongs to this run's workspace before writing it.
+    await loadOwnedOpportunity(deps.db, input.opportunity.id, runContext.workspaceId);
     await recordEnrollmentAssessment(deps.db, {
       opportunityId: input.opportunity.id,
       agentRunId,
@@ -262,20 +299,17 @@ export const fosEnrollmentBriefAgentDefinition: AgentDefinition<
   // rather than trusting `input.opportunity` (which is deliberately
   // least-privilege / model-visible only) — the projection never depends on
   // anything the model saw or produced.
-  projection: async ({ deps }, input) => {
+  projection: async ({ deps, runContext }, input) => {
     if (!deps.notionClient) {
       throw new Error("fos.enrollment_brief projection requires a notionClient dependency");
     }
-    const [opportunityRow] = await deps.db
-      .select()
-      .from(enrollmentOpportunity)
-      .where(eq(enrollmentOpportunity.id, input.opportunity.id))
-      .limit(1);
-    if (!opportunityRow) {
-      throw new Error(
-        `fos.enrollment_brief projection: enrollment_opportunity ${input.opportunity.id} not found`,
-      );
-    }
+    // Re-read the FULL canonical opportunity + assert workspace ownership
+    // (never trust the least-privilege `input.opportunity` across tenants).
+    const opportunityRow = await loadOwnedOpportunity(
+      deps.db,
+      input.opportunity.id,
+      runContext.workspaceId,
+    );
     // FLAG: env var read directly here (mirrors apps/api's notion webhook
     // route) rather than threaded through RunAgentDeps/RunAgentContext — no
     // per-agent config-injection seam exists on the runtime yet.
