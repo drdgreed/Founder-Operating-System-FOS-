@@ -26,7 +26,7 @@ export interface ReconcileResult {
   duplicateEntityIds: string[];
 }
 
-interface NotionPageResult {
+export interface NotionPageResult {
   id?: unknown;
   last_edited_time?: unknown;
   properties?: Record<string, unknown>;
@@ -42,8 +42,12 @@ function isPageResult(value: unknown): value is NotionPageResult {
   return typeof value === "object" && value !== null;
 }
 
-/** Paginates `client.queryDataSource` to completion (ADR-06 §4 polling primitive). */
-async function queryAllPages(
+/**
+ * Paginates `client.queryDataSource` to completion (ADR-06 §4 polling
+ * primitive). Exported so 0.2d's `captureStageCommands` reuses the same poll
+ * (per the issue's instruction to reuse 0.2c's poll/grouping/version logic).
+ */
+export async function queryAllPages(
   client: NotionClient,
   dataSourceId: string,
 ): Promise<NotionPageResult[]> {
@@ -64,8 +68,35 @@ async function queryAllPages(
   return pages;
 }
 
-function extractFosRecordId(page: NotionPageResult): string | null {
+/** Exported for reuse by 0.2d's `captureStageCommands`. */
+export function extractFosRecordId(page: NotionPageResult): string | null {
   return readRichTextProperty(page.properties?.["FOS Record ID"]);
+}
+
+/**
+ * Groups pages by `FOS Record ID`, separating out pages with no parseable id.
+ * Exported so 0.2d's `captureStageCommands` applies the SAME duplicate/orphan
+ * classification before ever version-checking a page (order of pages within
+ * a query response must not decide which copy "wins" — see `reconcile`'s use
+ * below).
+ */
+export function groupPagesByEntityId(pages: NotionPageResult[]): {
+  pagesByEntityId: Map<string, NotionPageResult[]>;
+  untagged: NotionPageResult[];
+} {
+  const pagesByEntityId = new Map<string, NotionPageResult[]>();
+  const untagged: NotionPageResult[] = [];
+  for (const page of pages) {
+    const entityId = extractFosRecordId(page);
+    if (!entityId) {
+      untagged.push(page);
+      continue;
+    }
+    const group = pagesByEntityId.get(entityId);
+    if (group) group.push(page);
+    else pagesByEntityId.set(entityId, [page]);
+  }
+  return { pagesByEntityId, untagged };
 }
 
 /**
@@ -120,18 +151,7 @@ export async function reconcile(
   // First pass: group pages by FOS Record ID so a duplicate is detected (and
   // excluded from per-page processing) BEFORE either copy is version-checked —
   // order of pages within a query response must not decide which copy "wins".
-  const pagesByEntityId = new Map<string, NotionPageResult[]>();
-  const untagged: NotionPageResult[] = [];
-  for (const page of pages) {
-    const entityId = extractFosRecordId(page);
-    if (!entityId) {
-      untagged.push(page);
-      continue;
-    }
-    const group = pagesByEntityId.get(entityId);
-    if (group) group.push(page);
-    else pagesByEntityId.set(entityId, [page]);
-  }
+  const { pagesByEntityId, untagged } = groupPagesByEntityId(pages);
 
   // Pages with no parseable `FOS Record ID` at all can't be matched to any
   // projection — flag as orphans, no crash (issue #29 item 4 / #30 constraint).

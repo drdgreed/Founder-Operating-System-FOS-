@@ -23,6 +23,11 @@
  *   INTEGRITY CHECK (detect §8.3 version-mismatch conflicts + orphan/duplicate
  *   pages) over the existing `projection` table. Command capture (the
  *   §11.5 workspace_command queue) lands with 0.2d.
+ *
+ * Slice 0.2d ("Stage-command capture") adds:
+ *   workspace_command (§11.5, status model §E1) — the controlled-command
+ *   CAPTURE path. Founder Stage edits become `propose_opportunity_stage_change`
+ *   commands in `received` status; validate/execute/Approval routing is 0.2e.
  */
 export * from "./fos_workspace.js";
 export * from "./product.js";
@@ -35,3 +40,4 @@ export * from "./artifact_version.js";
 export * from "./approval.js";
 export * from "./workspace_integration.js";
 export * from "./projection.js";
+export * from "./workspace_command.js";

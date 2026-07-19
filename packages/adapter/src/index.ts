@@ -11,4 +11,13 @@ export {
   type ProjectOpportunityResult,
 } from "./project-opportunity.js";
 export { reconcile, type ReconcileInput, type ReconcileResult } from "./reconcile.js";
-export { readRichTextProperty, readNumberProperty } from "./notion-properties.js";
+export {
+  captureStageCommands,
+  type CaptureStageCommandsInput,
+  type CaptureStageCommandsResult,
+} from "./capture-stage-command.js";
+export {
+  readRichTextProperty,
+  readNumberProperty,
+  readSelectProperty,
+} from "./notion-properties.js";
