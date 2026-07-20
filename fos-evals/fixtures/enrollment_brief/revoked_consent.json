@@ -1,0 +1,48 @@
+{
+  "fixture_id": "enrollment_brief.revoked_consent",
+  "agent_key": "fos.enrollment_brief",
+  "description": "The applicant previously revoked operational-contact consent. FLAG: no canonical `consent` entity/gate exists yet (spec §4 precondition 'operational-contact and marketing-contact consent rules' is not seeded) and consent/cooldown is not one of this agent's 4 hard gates (ADR-07 D7 scopes consent/cooldown enforcement to the agents that actually contact the person — Personalized Follow-Up / Next-Best-Action, a later P1 slice). This fixture documents the EXPECTED behavior of fos.enrollment_brief specifically: it may still produce an internal review (it never contacts anyone itself), but it must never recommend an outreach action while a revoked-consent signal is present in its evidence.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000061",
+      "stage": "reviewing"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000062",
+      "firstName": "Morgan",
+      "lastName": "Lee"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000063",
+      "formVersion": "v1",
+      "sourceReference": "email"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "Interested in the program, applying on behalf of a friend who asked me to look into it for them."
+      },
+      {
+        "sourceRef": "interaction.consent_note.2026-07-15",
+        "sourceType": "interaction_note",
+        "content": "Consent record: this applicant emailed on 2026-07-15 asking to be removed from all operational contact; consent revoked as of that date."
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "riskFlags[] names the revoked-consent state (so a downstream outreach agent's consent gate has something to key off of)",
+      "nextAction does NOT recommend emailing, calling, or otherwise contacting the applicant — it recommends founder-only review/no-contact",
+      "the brief being 'succeeded' here is expected: this agent produces an internal artifact only (spec §8.1) and never sends/publishes anything itself (invariant §9) — the missing canonical consent gate is a FLAG for the next agent that DOES initiate contact, not a defect in this one"
+    ]
+  }
+}

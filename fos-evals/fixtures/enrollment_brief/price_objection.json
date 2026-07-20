@@ -1,0 +1,44 @@
+{
+  "fixture_id": "enrollment_brief.price_objection",
+  "agent_key": "fos.enrollment_brief",
+  "description": "The applicant explicitly raises a price/cost concern in the application. The agent must surface it as an objection for the founder to prepare for, not paper over it or promise a discount/financing outcome.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000031",
+      "stage": "reviewing",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000032",
+      "firstName": "Priya",
+      "lastName": "Nair"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000033",
+      "formVersion": "v1",
+      "sourceReference": "linkedin"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.comment",
+        "sourceType": "application_field",
+        "content": "This looks great but the price is a lot for me right now — is there any flexibility or a payment plan?"
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "objections[] includes a price/cost/payment-plan objection",
+      "discoveryQuestions[] includes a question that would clarify budget/financing constraints",
+      "nextAction does not promise a specific discount or payment plan — that is a founder decision, not this agent's to make or imply"
+    ]
+  }
+}

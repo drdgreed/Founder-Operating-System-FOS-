@@ -4,7 +4,15 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "@fos/db/schema";
-import { fosWorkspace, featureFlag, type FeatureFlagMode } from "@fos/db/schema";
+import {
+  fosWorkspace,
+  featureFlag,
+  product,
+  person,
+  enrollmentOpportunity,
+  applicationSubmission,
+  type FeatureFlagMode,
+} from "@fos/db/schema";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // packages/agents/src/__tests__ -> packages/db/migrations
@@ -54,4 +62,75 @@ export async function setFeatureFlag(
     .returning();
   if (!row) throw new Error("setFeatureFlag: feature_flag upsert returned no row");
   return row;
+}
+
+/**
+ * Seeds a full EnrollmentOpportunity + Person + ApplicationSubmission chain
+ * (mirrors packages/adapter/src/__tests__/test-db.ts's seedOpportunity) for
+ * the `fos.enrollment_brief` agent tests, which need real canonical rows to
+ * project (stage 11) and to attach an EnrollmentAssessment to (stage 9b).
+ */
+export async function seedEnrollmentBriefFixture(
+  db: Awaited<ReturnType<typeof createTestDb>>["db"],
+) {
+  const workspace = await seedWorkspace(db);
+
+  const [prod] = await db
+    .insert(product)
+    .values({
+      workspaceId: workspace.id,
+      productKey: "career-foundry",
+      name: "Career Foundry",
+      productType: "product",
+      parentProductId: null,
+    })
+    .returning();
+  if (!prod) throw new Error("seedEnrollmentBriefFixture: product insert returned no row");
+
+  const [personRow] = await db
+    .insert(person)
+    .values({
+      workspaceId: workspace.id,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      currentRole: "Data Analyst",
+      currentCompany: "Acme Corp",
+      location: "Remote",
+      source: "website_application",
+      lifecycleType: "applicant",
+    })
+    .returning();
+  if (!personRow) throw new Error("seedEnrollmentBriefFixture: person insert returned no row");
+
+  const [opportunity] = await db
+    .insert(enrollmentOpportunity)
+    .values({
+      workspaceId: workspace.id,
+      productId: prod.id,
+      personId: personRow.id,
+      stage: "reviewing",
+      currency: "USD",
+      version: 1,
+    })
+    .returning();
+  if (!opportunity)
+    throw new Error("seedEnrollmentBriefFixture: enrollment_opportunity insert returned no row");
+
+  const [application] = await db
+    .insert(applicationSubmission)
+    .values({
+      workspaceId: workspace.id,
+      productId: prod.id,
+      personId: personRow.id,
+      opportunityId: opportunity.id,
+      formVersion: "v1",
+      rawPayloadJson: { note: "seeded fixture" },
+      sourceReference: "website_application",
+      intakeIdempotencyKey: `seed-${opportunity.id}`,
+    })
+    .returning();
+  if (!application)
+    throw new Error("seedEnrollmentBriefFixture: application_submission insert returned no row");
+
+  return { workspace, product: prod, person: personRow, opportunity, application };
 }

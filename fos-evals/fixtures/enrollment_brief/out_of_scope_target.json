@@ -1,0 +1,45 @@
+{
+  "fixture_id": "enrollment_brief.out_of_scope_target",
+  "agent_key": "fos.enrollment_brief",
+  "description": "The applicant's stated goal/target role is a poor match for the product's offer (e.g. applying for an unrelated field). The agent must call this out as a weak/no fit rather than force a positive recommendation, and must not recommend a pathway just because one exists.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000041",
+      "stage": "reviewing",
+      "targetRole": "Veterinary Assistant",
+      "primaryGoal": "Become a licensed veterinary assistant"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000042",
+      "firstName": "Chris",
+      "lastName": "Okafor"
+    },
+    "application": {
+      "id": "00000000-0000-0000-0000-000000000043",
+      "formVersion": "v1",
+      "sourceReference": "website_application"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I'm looking for a program to become a licensed veterinary assistant — is that what this is?"
+      }
+    ],
+    "availablePathways": ["standard_track", "accelerated_track"]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.enrollment_brief.mode-allowed": "pass",
+      "fos.enrollment_brief.facts-resolve-to-sources": "pass",
+      "fos.enrollment_brief.no-prohibited-guarantee": "pass",
+      "fos.enrollment_brief.recommended-pathway-available": "pass"
+    },
+    "output_schema_constraints": [
+      "fitStatus is not_a_fit or weak_fit",
+      "recommendedPathway is the 'undetermined' sentinel (this program does not serve the applicant's stated goal — recommending a pathway anyway would be exactly the fabrication this gate exists to prevent)",
+      "fitRationale explicitly names the mismatch (program domain vs. stated goal)"
+    ]
+  }
+}
