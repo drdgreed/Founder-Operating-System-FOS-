@@ -27,3 +27,15 @@ Cross-project process lessons (general git/validation discipline) live in `~/tas
 **Rule:** Before pushing any commit I authored locally, run `npm run lint` (or `npm run format` to auto-fix) and confirm clean — especially for docs/markdown/config, where it's easy to forget Prettier governs them too. Do not assume "it's just a markdown file" is lint-exempt. The cloud makers already do this; the gap is only on my own hand-authored commits.
 
 **Provenance:** PR #59, 2026-07-20. CI `node` step-6 (`prettier --check`) failure on `docs/AGENT_LESSONS.md`; fixed with `prettier --write` (only change was `*emphasis*` → `_emphasis_`).
+
+---
+
+## P-003 · Monitor/check-in loops must be read-and-report only — never granted write/Task/merge authority
+
+**Symptom:** PR #62 appeared unbidden — a real #52 follow-up, but opened against main from _before_ #66 merged, 10 commits stale, colliding hard with the just-merged #66 (a duplicate `FOS1-RT-18` test at the same line, plus overlapping `pipeline.ts` catch-block edits). It had never been through the adversarial gate. This was the **second** parallel-session collision in the project.
+
+**Cause:** a `send_later` "watch PR #61" check-in loop was configured with the full write toolset (`Edit`/`Write`/`MultiEdit`/`Task`) and an "address anything actionable" mandate, re-arming hourly. With nothing actionable on #61, a firing of that loop grabbed issue #52 off the backlog and opened a PR against stale `main` — unsupervised, ungated, on a base that a concurrent interactive slice (#66) was about to invalidate. A loop meant to _observe_ instead _produced_ work.
+
+**Rule:** a loop whose job is to _watch/report_ on a PR gets read-and-report tools ONLY — no `Edit`/`Write`/`MultiEdit`/`Task`, no branch/PR creation, no merge. Any actual code work goes through an explicit, supervised maker dispatch on a known-fresh base (`run_once`, scoped `allowed_tools`), never a watcher's latitude to "fix anything." When creating check-in routines, scope `allowed_tools` to read/report (`Read`/`Grep`/`Glob`/`Bash` read-only + the PR-read MCP) and never leave a standing loop with write authority pointed at the repo. Corollary: before merging any PR, confirm its head branch was branched from _current_ main (a stale base + a shared-file slice = a silent collision that only surfaces at merge/rebase).
+
+**Provenance:** PR #62, 2026-07-20. A `send_later` watcher (persistent session `session_01215A2y3UFrFDgpmWv3CrLQ`, watching PR #61) opened PR #62 for #52 at 07:24 UTC — ~3 min after that watcher fired at 07:21 — against main-before-#66. Surfaced when the founder asked why #62 was still WIP; the loop was disabled and #62 rebased + gated + de-collided (tests renumbered `RT-21/22/23`).
