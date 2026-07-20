@@ -6,7 +6,7 @@ import { assembleContext } from "./context.js";
 import type { GateEvaluation } from "./gates/gate.js";
 import { evaluateGates } from "./gates/gate.js";
 import { effectiveMode, type FeatureMode } from "./mode.js";
-import { DEFAULT_MODEL } from "./model-client.js";
+import { DEFAULT_MODEL, type ModelUsage } from "./model-client.js";
 import { buildPrompt, buildRepairPrompt } from "./prompt.js";
 import { zodToJsonSchema } from "./schema-to-json.js";
 import type { AgentDefinition, RunAgentContext, RunAgentDeps } from "./types.js";
@@ -159,6 +159,13 @@ export async function runAgent<TInput, TOutput>(
   if (!runRow) throw new Error("runAgent: agent_run insert returned no row");
   const runId = runRow.id;
 
+  // Hoisted above the try so the outer catch (any stage from here on) can
+  // persist whatever cost/timing/retry state was actually observed before
+  // the failure, instead of silently dropping it (issue #52 item 1).
+  let startedAt: number | undefined;
+  let usage: ModelUsage | undefined;
+  let retryCount = 0;
+
   try {
     // ---- Stage 4: prompt construction ---------------------------------
     const model = definition.model ?? DEFAULT_MODEL;
@@ -171,14 +178,13 @@ export async function runAgent<TInput, TOutput>(
       .where(eq(agentRun.id, runId));
 
     // ---- Stage 5: model execution (the only non-deterministic stage) --
-    const startedAt = Date.now();
+    startedAt = Date.now();
     const firstAttempt = await deps.modelClient.generateStructured({
       ...prompt,
       outputJsonSchema,
       model,
     });
-    let usage = firstAttempt.usage;
-    let retryCount = 0;
+    usage = firstAttempt.usage;
 
     // ---- Stage 6: structured-output validation, repair-retry-once -----
     let parsed = definition.outputSchema.safeParse(firstAttempt.output);
@@ -422,10 +428,35 @@ export async function runAgent<TInput, TOutput>(
     // model-client.ts / packages/notion/src/client.ts), so nothing here can
     // leak ANTHROPIC_API_KEY.
     const message = err instanceof Error ? err.message : String(err);
+    const latencyMs = startedAt !== undefined ? Date.now() - startedAt : null;
     await deps.db
       .update(agentRun)
-      .set({ status: "error", deterministicEvalJson: { error: message }, updatedAt: new Date() })
+      .set({
+        status: "error",
+        retryCount,
+        latencyMs,
+        costJson: usage ?? null,
+        deterministicEvalJson: { error: message },
+        updatedAt: new Date(),
+      })
       .where(eq(agentRun.id, runId));
+
+    // Every other terminal (succeeded/evaluation_failed/policy_blocked)
+    // emits an audit event; the error path previously did not, leaving an
+    // errored run invisible to event/projection consumers (issue #52 item 1).
+    await writeEvent(deps.db, {
+      workspaceId: runContext.workspaceId,
+      productId: runContext.productId ?? null,
+      entityType: "AgentRun",
+      entityId: runId,
+      source: "agent-runtime",
+      correlationId,
+      causationId,
+      actor: runContext.actor,
+      type: "agent_run.error",
+      payload: { agentKey: definition.key, agentVersion: definition.version, error: message },
+    });
+
     throw err;
   }
 }
