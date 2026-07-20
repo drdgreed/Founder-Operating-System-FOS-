@@ -244,13 +244,23 @@ export const fosObjectionIntelligenceAgentDefinition: AgentDefinition<
       // The gate must scan EVERY field `buildBodyMarkdown` renders into the
       // canonical founder-facing artifact (mirrors enrollment-brief's /
       // post-call-synthesis's own issue-#53/#68 precedent): a prohibited
-      // guarantee otherwise reaches canonical state via `summary`, an
-      // objection's `category`, or its `statement` — all three are rendered
-      // free text below, so all three are scanned. Keep this list in sync
-      // with `buildBodyMarkdown`.
+      // guarantee otherwise reaches canonical state. `summary`, `category`,
+      // and `statement` are rendered free text. `sourceRef` is ALSO rendered
+      // by `renderObjectionLine`, and for an `inferred` objection it is
+      // UNVALIDATED model free text (the observed-source gate only checks
+      // observed objections) — so it must be scanned too, or a guarantee
+      // smuggled into an inferred objection's `sourceRef` reaches the
+      // artifact unblocked (PR #74 3-layer gate, correctness finding). For an
+      // observed objection `sourceRef` is a validated identifier that cannot
+      // match the guarantee heuristic, so scanning it is harmless. Keep this
+      // list in sync with `buildBodyMarkdown`.
       selectText: (output) => [
         output.summary,
-        ...output.objections.flatMap((o) => [o.category, o.statement]),
+        ...output.objections.flatMap((o) => [
+          o.category,
+          o.statement,
+          ...(o.sourceRef ? [o.sourceRef] : []),
+        ]),
       ],
     }),
   ],

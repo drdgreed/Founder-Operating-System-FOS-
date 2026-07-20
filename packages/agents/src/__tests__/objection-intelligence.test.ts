@@ -349,6 +349,57 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
 
+  it("FOS1-OBJINT-11: a prohibited guarantee smuggled into an INFERRED objection's sourceRef is STILL blocked (PR #74 gate fix)", async () => {
+    const fixture = await seedObjectionIntelligenceFixture(ctx.db);
+    await setFeatureFlag(ctx.db, {
+      workspaceId: fixture.workspace.id,
+      key: FOS_OBJECTION_INTELLIGENCE_FEATURE_FLAG_KEY,
+      enabled: true,
+      mode: "review",
+    });
+    // The guarantee is in `sourceRef`, NOT `statement`, on an INFERRED
+    // objection. observedObjectionHasSourceGate exempts inferred objections,
+    // so ONLY the noProhibitedGuaranteeGate scanning sourceRef can catch this.
+    // Before the PR #74 fix (selectText omitted sourceRef) this run SUCCEEDED
+    // and the guarantee reached the canonical artifact.
+    const modelClient = new FakeModelClient([
+      validResult(
+        buildOutput({
+          objections: [
+            {
+              category: "outcome_skepticism",
+              statement: "The candidate seems unsure about outcomes.",
+              classification: "inferred",
+              severity: "low",
+              confidence: "low",
+              sourceRef: "we guarantee you a job offer within 30 days",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient },
+      fosObjectionIntelligenceAgentDefinition,
+      buildInput(fixture),
+      runContext,
+    );
+
+    expect(result.status).toBe("policy_blocked");
+    expect(result.artifact).toBeUndefined();
+    expect(
+      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
+    ).toBe(true);
+    expect(await ctx.db.select().from(objectionRecord)).toHaveLength(0);
+    expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
+  });
+
   it("FOS1-OBJINT-06: ATOMIC MULTI-WRITE — a cross-workspace opportunity id is rejected; ZERO objection_record rows AND zero artifactRecord for a multi-objection run", async () => {
     const mine = await seedObjectionIntelligenceFixture(ctx.db);
     const theirs = await seedObjectionIntelligenceFixture(ctx.db);
