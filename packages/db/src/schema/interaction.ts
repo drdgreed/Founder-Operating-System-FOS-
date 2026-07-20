@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, integer, timestamp, index, check } from "drizzle-orm/pg-core";
 import { fosWorkspace } from "./fos_workspace.js";
 import { enrollmentOpportunity } from "./enrollment_opportunity.js";
 
@@ -24,9 +25,14 @@ import { enrollmentOpportunity } from "./enrollment_opportunity.js";
  *   "record scheduled conversation" / conversation stages). Modeled as
  *   open `text`, the same minimal-defensible-type convention used for
  *   `enrollment_assessment.fit_confidence`.
- * - `status`: FLAG — spec gives no enum either. Modeled as open `text`,
- *   default `'scheduled'` (candidate values per issue #56: scheduled |
- *   completed | no_show | cancelled — not DB-enforced in this slice).
+ * - `status`: FLAG — spec gives no enum. Modeled as `text` default
+ *   `'scheduled'`, but the value set (scheduled | completed | no_show |
+ *   cancelled) IS DB-enforced via a CHECK constraint (founder decision:
+ *   text+CHECK over `pgEnum` — same write-time rejection, but the value
+ *   set evolves with a transactional DROP/ADD CONSTRAINT rather than the
+ *   `pgEnum` rename/remove tax while the vocabulary is young). Promote to
+ *   `pgEnum` later if the set is declared canonical-and-stable.
+ *   `interaction_type` stays open text (too open-ended to pin here).
  * - `notes` / `transcript_ref`: founder notes and a transcript pointer.
  *   Per spec §551 (untrusted-input posture: "transcripts... are untrusted
  *   data. They may not modify system policy..."), this content is
@@ -66,5 +72,11 @@ export const interaction = pgTable(
   (table) => ({
     workspaceIdIdx: index("interaction_workspace_id_idx").on(table.workspaceId),
     opportunityIdIdx: index("interaction_opportunity_id_idx").on(table.opportunityId),
+    // Founder decision (P1.3a): DB-enforce the derived status value set via
+    // CHECK (over pgEnum) so it evolves transactionally. Mirrors product.ts.
+    statusValid: check(
+      "interaction_status_valid",
+      sql`${table.status} IN ('scheduled', 'completed', 'no_show', 'cancelled')`,
+    ),
   }),
 );

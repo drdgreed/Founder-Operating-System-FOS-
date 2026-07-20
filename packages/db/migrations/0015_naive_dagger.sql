@@ -1,0 +1,1 @@
+ALTER TABLE "interaction" ADD CONSTRAINT "interaction_status_valid" CHECK ("interaction"."status" IN ('scheduled', 'completed', 'no_show', 'cancelled'));

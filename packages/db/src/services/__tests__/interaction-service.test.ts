@@ -8,6 +8,7 @@ import {
   getInteractionById,
   updateInteractionStatus,
   StaleInteractionVersionError,
+  InteractionNotFoundError,
 } from "../interaction-service.js";
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
@@ -185,6 +186,58 @@ describe("interaction entity (issue #56 P1.3a)", () => {
 
       const [reread] = await ctx.db.select().from(interaction).where(eq(interaction.id, row.id));
       expect(reread).toMatchObject({ status: "scheduled", version: 1 });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it("FOS1-INT-09: updateInteractionStatus on a nonexistent id throws InteractionNotFoundError", async () => {
+    const ctx = await createTestDb();
+    try {
+      // No interaction is created — the id is genuinely absent.
+      await expect(
+        updateInteractionStatus(ctx.db, {
+          interactionId: NIL_UUID,
+          expectedVersion: 1,
+          status: "completed",
+        }),
+      ).rejects.toThrow(InteractionNotFoundError);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it("FOS1-INT-10: createInteraction honors an explicit caller-supplied status (not silently defaulted)", async () => {
+    const ctx = await createTestDb();
+    try {
+      const { workspace, opportunity } = await seedFullOpportunity(ctx.db);
+      const row = await createInteraction(ctx.db, {
+        workspaceId: workspace.id,
+        opportunityId: opportunity.id,
+        interactionType: "discovery_call",
+        status: "no_show",
+      });
+      expect(row.status).toBe("no_show");
+
+      const [reread] = await ctx.db.select().from(interaction).where(eq(interaction.id, row.id));
+      expect(reread).toMatchObject({ status: "no_show" });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it("FOS1-INT-11: the status CHECK constraint rejects a value outside the allowed set", async () => {
+    const ctx = await createTestDb();
+    try {
+      const { workspace, opportunity } = await seedFullOpportunity(ctx.db);
+      await expect(
+        createInteraction(ctx.db, {
+          workspaceId: workspace.id,
+          opportunityId: opportunity.id,
+          interactionType: "discovery_call",
+          status: "bogus_status",
+        }),
+      ).rejects.toThrow();
     } finally {
       await ctx.close();
     }

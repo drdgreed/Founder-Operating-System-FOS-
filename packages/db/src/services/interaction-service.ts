@@ -137,7 +137,20 @@ export async function updateInteractionStatus(
 
     if (updated.length === 0) {
       // Concurrent writer won the race between our SELECT and this UPDATE.
-      throw new StaleInteractionVersionError(input.expectedVersion, current.version);
+      // Re-read to report the TRUE current version — `current.version` was
+      // asserted equal to `expectedVersion` above, so reporting it here would
+      // give a misleading "expected N, current N". (The sibling
+      // opportunity-transition-service has the same latent issue; tracked to
+      // align repo-wide — see follow-up issue.)
+      const [latest] = await tx
+        .select({ version: interaction.version })
+        .from(interaction)
+        .where(eq(interaction.id, input.interactionId))
+        .limit(1);
+      throw new StaleInteractionVersionError(
+        input.expectedVersion,
+        latest?.version ?? current.version,
+      );
     }
     const [row] = updated;
     if (!row) throw new Error("updateInteractionStatus: interaction update returned no row");
