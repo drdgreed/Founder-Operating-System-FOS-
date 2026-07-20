@@ -1,0 +1,49 @@
+{
+  "fixture_id": "post_call_synthesis.contradicts_prior_assessment",
+  "agent_key": "fos.post_call_synthesis",
+  "description": "A `prior_assessment` evidence record (from the earlier Enrollment Brief / Call Preparation stage) characterized the applicant as price-insensitive and highly motivated. The call itself surfaced the opposite: a serious price objection and cooling interest. The recap must be grounded in THIS call's evidence, not the stale prior assessment — observedFacts/inferences must reflect what was actually said now, and fitUpdate must be able to move in the 'declined' direction even though it contradicts the earlier read.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000231",
+      "stage": "conversation_scheduled"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000232",
+      "firstName": "Sam",
+      "lastName": "Rivera"
+    },
+    "interaction": {
+      "id": "00000000-0000-0000-0000-000000000233",
+      "interactionType": "discovery_call",
+      "notes": "Sam said the price is now a dealbreaker and they may wait for a future cohort or a competitor's cheaper option.",
+      "transcriptRef": "transcript://call/231"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "prior_assessment.enrollment_brief.201",
+        "sourceType": "prior_assessment",
+        "content": "Enrollment Brief (pre-call): applicant appeared highly motivated and price-insensitive based on application answers."
+      },
+      {
+        "sourceRef": "interaction.note.primary",
+        "sourceType": "interaction_note",
+        "content": "Sam said the price is now a dealbreaker and they may wait for a future cohort or a competitor's cheaper option."
+      }
+    ]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.post_call_synthesis.mode-allowed": "pass",
+      "fos.post_call_synthesis.facts-resolve-to-sources": "pass",
+      "fos.post_call_synthesis.stage-proposal-legal": "pass",
+      "fos.post_call_synthesis.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "objections[] includes the price objection surfaced on THIS call, even though it contradicts the prior_assessment record",
+      "fitUpdate.status reflects the new call evidence (e.g. 'declined' or 'unchanged' with a rationale naming the contradiction), not a naive carry-forward of the prior assessment's 'highly motivated' read",
+      "observedFacts[] cites the interaction.note.primary sourceRef for the price objection, not the prior_assessment sourceRef used as though it were current",
+      "the prior_assessment content may inform an inference (labeled, with confidence) about the applicant's trajectory but must never be presented as an observedFact about the current call"
+    ]
+  }
+}

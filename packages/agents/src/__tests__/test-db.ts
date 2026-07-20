@@ -208,3 +208,75 @@ export async function seedCallPreparationFixture(
 
   return { workspace, product: prod, person: personRow, opportunity, interaction: interactionRow };
 }
+
+/**
+ * Seeds an EnrollmentOpportunity + Person chain plus a COMPLETED Interaction
+ * (P1.3a substrate) for the `fos.post_call_synthesis` agent tests (issue
+ * #68) — mirrors `seedCallPreparationFixture` exactly, but the opportunity
+ * starts at `conversation_scheduled` (a stage with legal outgoing edges to
+ * `conversation_completed`, `contacted`, and `unresponsive` per the §12.1
+ * matrix, so a test can freely exercise both legal and illegal proposed
+ * stages) and the interaction is `completed` (the call already happened).
+ *
+ * Accepts an optional already-seeded `workspace` row for the same reason as
+ * `seedCallPreparationFixture`: exercising the
+ * "interaction belongs to a different opportunity" check.
+ */
+export async function seedPostCallSynthesisFixture(
+  db: Awaited<ReturnType<typeof createTestDb>>["db"],
+  existingWorkspace?: Awaited<ReturnType<typeof seedWorkspace>>,
+) {
+  const workspace = existingWorkspace ?? (await seedWorkspace(db));
+
+  const [prod] = await db
+    .insert(product)
+    .values({
+      workspaceId: workspace.id,
+      productKey: `career-foundry-${randomUUID().slice(0, 8)}`,
+      name: "Career Foundry",
+      productType: "product",
+      parentProductId: null,
+    })
+    .returning();
+  if (!prod) throw new Error("seedPostCallSynthesisFixture: product insert returned no row");
+
+  const [personRow] = await db
+    .insert(person)
+    .values({
+      workspaceId: workspace.id,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      currentRole: "Data Analyst",
+      currentCompany: "Acme Corp",
+      location: "Remote",
+      source: "website_application",
+      lifecycleType: "applicant",
+    })
+    .returning();
+  if (!personRow) throw new Error("seedPostCallSynthesisFixture: person insert returned no row");
+
+  const [opportunity] = await db
+    .insert(enrollmentOpportunity)
+    .values({
+      workspaceId: workspace.id,
+      productId: prod.id,
+      personId: personRow.id,
+      stage: "conversation_scheduled",
+      currency: "USD",
+      version: 1,
+    })
+    .returning();
+  if (!opportunity)
+    throw new Error("seedPostCallSynthesisFixture: enrollment_opportunity insert returned no row");
+
+  const interactionRow = await createInteraction(db, {
+    workspaceId: workspace.id,
+    opportunityId: opportunity.id,
+    interactionType: "discovery_call",
+    status: "completed",
+    scheduledAt: new Date("2026-07-25T15:00:00.000Z"),
+    occurredAt: new Date("2026-07-25T15:32:00.000Z"),
+  });
+
+  return { workspace, product: prod, person: personRow, opportunity, interaction: interactionRow };
+}

@@ -1,0 +1,54 @@
+{
+  "fixture_id": "post_call_synthesis.strong_outcome",
+  "agent_key": "fos.post_call_synthesis",
+  "description": "A discovery call went well: the applicant confirmed goals, budget, and timeline, and made a soft commitment. Even though the outcome is strong, the proposed stage must still be the NEXT legal stage (conversation_completed) — never a skip-ahead to offered/enrolled, no matter how enthusiastic the call was.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000201",
+      "stage": "conversation_scheduled",
+      "primaryGoal": "Transition into a senior data analyst role",
+      "targetRole": "Senior Data Analyst",
+      "targetTimeline": "3 months"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "currentRole": "Data Analyst",
+      "currentCompany": "Acme Corp"
+    },
+    "interaction": {
+      "id": "00000000-0000-0000-0000-000000000203",
+      "interactionType": "discovery_call",
+      "notes": "Great call. Ada confirmed her budget, is available 10 hrs/week, and wants to start next cohort.",
+      "transcriptRef": "transcript://call/201"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "interaction.note.primary",
+        "sourceType": "interaction_note",
+        "content": "Great call. Ada confirmed her budget, is available 10 hrs/week, and wants to start next cohort."
+      },
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I want to move into a senior data analyst role within 3 months."
+      }
+    ]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.post_call_synthesis.mode-allowed": "pass",
+      "fos.post_call_synthesis.facts-resolve-to-sources": "pass",
+      "fos.post_call_synthesis.stage-proposal-legal": "pass",
+      "fos.post_call_synthesis.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "stageProposal.proposedStage is 'conversation_completed' (the ONLY forward legal edge from conversation_scheduled reachable by a single call) — never 'offered' or 'enrolled', regardless of how strong the call was",
+      "confirmedGoals[]/commitments[] reflect the call's specifics (budget, availability, start timing)",
+      "fitUpdate.status is 'improved' with a rationale grounded in observedFacts",
+      "no artifact write ever changes enrollment_opportunity.stage — the proposal is output-only"
+    ]
+  }
+}
