@@ -1,0 +1,50 @@
+{
+  "fixture_id": "post_call_synthesis.objection_heavy",
+  "agent_key": "fos.post_call_synthesis",
+  "description": "The call surfaced multiple objections (price, time commitment, skepticism about outcomes). The recap must capture every objection distinctly, must not promise a specific discount or an employment outcome to resolve them, and should propose staying in active contact ('contacted') rather than 'conversation_completed' framed as a close-ready state.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000211",
+      "stage": "conversation_scheduled",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000212",
+      "firstName": "Priya",
+      "lastName": "Nair"
+    },
+    "interaction": {
+      "id": "00000000-0000-0000-0000-000000000213",
+      "interactionType": "discovery_call",
+      "notes": "Priya raised price concerns, said 10 hrs/week feels tight with her current job, and asked whether graduates actually get hired.",
+      "transcriptRef": "transcript://call/211"
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "interaction.note.primary",
+        "sourceType": "interaction_note",
+        "content": "Priya raised price concerns, said 10 hrs/week feels tight with her current job, and asked whether graduates actually get hired."
+      },
+      {
+        "sourceRef": "application.raw_payload.comment",
+        "sourceType": "application_field",
+        "content": "Interested but budget is a concern and I have a demanding full-time job right now."
+      }
+    ]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.post_call_synthesis.mode-allowed": "pass",
+      "fos.post_call_synthesis.facts-resolve-to-sources": "pass",
+      "fos.post_call_synthesis.stage-proposal-legal": "pass",
+      "fos.post_call_synthesis.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "objections[] lists price, time-commitment, and outcome-skepticism as distinct entries",
+      "followUpBrief/nextAction never promise a specific discount, guaranteed job placement, or interview outcome to overcome the objections",
+      "stageProposal.proposedStage is a legal edge from conversation_scheduled ('contacted' or 'conversation_completed'), chosen to reflect that the relationship needs further nurturing rather than being close-ready",
+      "openQuestions[] includes something that would clarify whether the time-commitment concern is resolvable"
+    ]
+  }
+}

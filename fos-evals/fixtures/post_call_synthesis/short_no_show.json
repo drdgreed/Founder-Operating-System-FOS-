@@ -1,0 +1,46 @@
+{
+  "fixture_id": "post_call_synthesis.short_no_show",
+  "agent_key": "fos.post_call_synthesis",
+  "description": "The applicant did not show up for the scheduled call (or the call was extremely short with no substantive content). The agent must not fabricate goals/commitments/objections that were never discussed, must surface the no-show as an open question, and must propose 'unresponsive' rather than a completed/forward stage.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000221",
+      "stage": "conversation_scheduled"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000222",
+      "firstName": "Jordan",
+      "lastName": "Blake"
+    },
+    "interaction": {
+      "id": "00000000-0000-0000-0000-000000000223",
+      "interactionType": "discovery_call",
+      "notes": "Jordan did not join the call. No response to the reminder message either.",
+      "transcriptRef": null
+    },
+    "evidenceRecords": [
+      {
+        "sourceRef": "interaction.note.primary",
+        "sourceType": "interaction_note",
+        "content": "Jordan did not join the call. No response to the reminder message either."
+      }
+    ]
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.post_call_synthesis.mode-allowed": "pass",
+      "fos.post_call_synthesis.facts-resolve-to-sources": "pass",
+      "fos.post_call_synthesis.stage-proposal-legal": "pass",
+      "fos.post_call_synthesis.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "confirmedGoals[]/constraints[]/objections[]/commitments[] are empty or near-empty — nothing was actually discussed",
+      "openQuestions[] surfaces the no-show and whether to attempt re-scheduling",
+      "fitUpdate.status is 'undetermined' with a rationale explaining no signal was gathered",
+      "stageProposal.proposedStage is 'unresponsive' (the legal edge for this outcome), not 'conversation_completed'",
+      "no observedFacts entry claims content from a call that did not happen"
+    ],
+    "notes": "No-fabrication regression fixture: a model that invents plausible-sounding call content for a no-show must be caught by factsResolveToSources at the gate layer."
+  }
+}
