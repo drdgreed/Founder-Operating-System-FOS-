@@ -40,6 +40,11 @@
  *   interaction — a derived entity (spec never fields it explicitly; see
  *   the file header for FLAGged type choices). Schema + service only —
  *   no agent/API/Notion wiring (that's P1.3b/P1.3c).
+ *
+ * Slice P1.4a ("P1.4 domain substrate", issue #70) adds:
+ *   objection_record (spec §6.5), enrollment_action_recommendation (spec
+ *   §6.6) — the two canonical tables the P1.4 agents attach to. Schema +
+ *   service only — no agent/API/projection/gate/worker wiring.
  */
 export * from "./fos_workspace.js";
 export * from "./product.js";
@@ -57,3 +62,5 @@ export * from "./agent_run.js";
 export * from "./feature_flag.js";
 export * from "./enrollment_assessment.js";
 export * from "./interaction.js";
+export * from "./objection_record.js";
+export * from "./enrollment_action_recommendation.js";

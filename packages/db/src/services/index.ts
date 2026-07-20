@@ -10,3 +10,5 @@ export * from "./artifact-service.js";
 export * from "./approval-service.js";
 export * from "./enrollment-assessment-service.js";
 export * from "./interaction-service.js";
+export * from "./objection-service.js";
+export * from "./enrollment-action-recommendation-service.js";
