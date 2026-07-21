@@ -1,0 +1,38 @@
+{
+  "fixture_id": "next_best_action.consent_unknown_blocks",
+  "agent_key": "fos.next_best_action",
+  "description": "DECISIVE fixture (FOUNDER DECISION, issue #78, option B): no consent has been recorded for this person on ANY channel — consentedChannels is empty. A proposed contact action on any channel must BLOCK, fail-closed, even though nothing indicates consent was ever revoked. This is the headline property the 3-layer gate checks: unknown/absent consent is never a silent 'allowed'.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000451",
+      "stage": "contacted",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000452",
+      "firstName": "Jordan",
+      "lastName": "Kim"
+    },
+    "consentedChannels": [],
+    "now": "2026-01-10T00:00:00.000Z",
+    "cooldownUntil": null,
+    "existingOpenActions": [],
+    "scheduledActivities": [],
+    "availableOffers": ["cohort-2026-a"],
+    "allowedActionsByStage": {
+      "contacted": ["send_follow_up_email", "send_follow_up_sms", "internal_task", "no_action"]
+    }
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "gate_outcomes": {
+      "fos.next_best_action.mode-allowed": "pass",
+      "fos.next_best_action.consent": "critical_fail"
+    },
+    "output_schema_constraints": [
+      "no EnrollmentActionRecommendation row is written",
+      "no artifact is created",
+      "the blocking gate reason references the absence of recorded consent, not a revocation"
+    ]
+  }
+}

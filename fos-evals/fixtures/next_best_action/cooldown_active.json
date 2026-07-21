@@ -1,0 +1,38 @@
+{
+  "fixture_id": "next_best_action.cooldown_active",
+  "agent_key": "fos.next_best_action",
+  "description": "Consent is recorded for email, but the person was contacted very recently and remains inside an active cooldown window. A proposed contact action must block regardless of consent.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000461",
+      "stage": "contacted",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000462",
+      "firstName": "Sam",
+      "lastName": "Osei"
+    },
+    "consentedChannels": ["email"],
+    "now": "2026-01-01T00:00:00.000Z",
+    "cooldownUntil": "2026-01-08T00:00:00.000Z",
+    "existingOpenActions": [],
+    "scheduledActivities": [],
+    "availableOffers": ["cohort-2026-a"],
+    "allowedActionsByStage": {
+      "contacted": ["send_follow_up_email", "send_follow_up_sms", "internal_task", "no_action"]
+    }
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "gate_outcomes": {
+      "fos.next_best_action.mode-allowed": "pass",
+      "fos.next_best_action.consent": "pass",
+      "fos.next_best_action.cooldown": "critical_fail"
+    },
+    "output_schema_constraints": [
+      "no EnrollmentActionRecommendation row is written",
+      "no artifact is created"
+    ]
+  }
+}

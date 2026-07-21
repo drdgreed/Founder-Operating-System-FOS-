@@ -13,11 +13,12 @@ import { offerAvailableGate } from "../offer-available.js";
 interface FakeInput {
   currentStage: OpportunityStage;
   now: string;
-  revokedChannels: string[];
+  consentedChannels: string[];
   cooldownUntil: string | null;
   existingOpenActions: ActionKey[];
   scheduledActivities: ActionKey[];
   availableOffers: string[];
+  allowedActionsByStage: Readonly<Record<OpportunityStage, readonly string[]>>;
 }
 
 interface FakeOutput {
@@ -28,6 +29,20 @@ interface FakeOutput {
   impliedStage?: OpportunityStage;
   offer: string;
 }
+
+const DEFAULT_ALLOWED_ACTIONS_BY_STAGE: Readonly<Record<OpportunityStage, readonly string[]>> = {
+  new_lead: [],
+  reviewing: [],
+  contacted: ["send_follow_up_email"],
+  conversation_scheduled: [],
+  conversation_completed: [],
+  offered: [],
+  enrolled: [],
+  declined: [],
+  deferred: [],
+  unresponsive: [],
+  disqualified: [],
+};
 
 function ctx(
   input: Partial<FakeInput>,
@@ -40,11 +55,12 @@ function ctx(
     input: {
       currentStage: "contacted",
       now: "2026-01-10T00:00:00.000Z",
-      revokedChannels: [],
+      consentedChannels: [],
       cooldownUntil: null,
       existingOpenActions: [],
       scheduledActivities: [],
       availableOffers: [],
+      allowedActionsByStage: DEFAULT_ALLOWED_ACTIONS_BY_STAGE,
       ...input,
     },
     output: {
@@ -58,31 +74,43 @@ function ctx(
 }
 
 describe("FOS1-NBA-GATE-consent", () => {
+  // FOUNDER DECISION (issue #78): consent is OPTION B — opt-in / fail-closed.
+  // A proposed contact's channel must be AFFIRMATIVELY in the allowlist;
+  // absent/empty/unknown consent BLOCKS. This replaces the #77 denylist
+  // ("option A") shape — see gates/consent.ts file header.
   const gate = consentGate<FakeInput, FakeOutput>({
     key: "fos.next_best_action.consent",
     selectProposedActionChannel: (output) => output.channel,
-    selectRevokedChannels: (input) => input.revokedChannels,
+    selectConsentedChannels: (input) => input.consentedChannels,
   });
 
-  it("ALLOW: channel has not been revoked", async () => {
-    const result = await gate.evaluate(ctx({ revokedChannels: ["sms"] }, { channel: "email" }));
+  it("ALLOW: channel is affirmatively in the consented-channel allowlist", async () => {
+    const result = await gate.evaluate(
+      ctx({ consentedChannels: ["email", "sms"] }, { channel: "email" }),
+    );
     expect(result.allowed).toBe(true);
   });
 
-  it("BLOCK: channel consent has been revoked", async () => {
-    const result = await gate.evaluate(ctx({ revokedChannels: ["email"] }, { channel: "email" }));
+  it("BLOCK: channel is not in the consented-channel allowlist", async () => {
+    const result = await gate.evaluate(ctx({ consentedChannels: ["sms"] }, { channel: "email" }));
     expect(result.allowed).toBe(false);
-    expect(result.reason).toMatch(/revoked/);
+    expect(result.reason).toMatch(/no recorded consent/);
   });
 
-  it("edge: action with no channel (e.g. internal task) is always allowed", async () => {
-    const result = await gate.evaluate(ctx({ revokedChannels: ["email"] }, { channel: undefined }));
+  it("DECISIVE (option B, fail-closed): UNKNOWN/ABSENT consent for the channel BLOCKS the contact — an empty consentedChannels set never defaults to allowed", async () => {
+    const result = await gate.evaluate(ctx({ consentedChannels: [] }, { channel: "email" }));
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/no recorded consent/);
+  });
+
+  it("edge: action with no channel (e.g. internal task) is always allowed, even with no consent recorded", async () => {
+    const result = await gate.evaluate(ctx({ consentedChannels: [] }, { channel: undefined }));
     expect(result.allowed).toBe(true);
   });
 
-  it("edge: empty revoked-channel set allows any channel", async () => {
-    const result = await gate.evaluate(ctx({ revokedChannels: [] }, { channel: "email" }));
-    expect(result.allowed).toBe(true);
+  it("edge: consent recorded for a DIFFERENT channel does not extend to the proposed channel", async () => {
+    const result = await gate.evaluate(ctx({ consentedChannels: ["sms"] }, { channel: "phone" }));
+    expect(result.allowed).toBe(false);
   });
 });
 
@@ -161,26 +189,15 @@ describe("FOS1-NBA-GATE-cooldown", () => {
 });
 
 describe("FOS1-NBA-GATE-lifecycle-legal", () => {
-  const allowedActionsByStage: Readonly<Record<OpportunityStage, readonly string[]>> = {
-    new_lead: [],
-    reviewing: [],
-    contacted: ["send_follow_up_email"],
-    conversation_scheduled: [],
-    conversation_completed: [],
-    offered: [],
-    enrolled: [],
-    declined: [],
-    deferred: [],
-    unresponsive: [],
-    disqualified: [],
-  };
-
+  // FLAG (issue #78): allowedActionsByStage is caller-supplied per-run input
+  // (selector), not a value fixed at gate-construction time — see
+  // gates/lifecycle-legal.ts file header.
   const gate = lifecycleLegalGate<FakeInput, FakeOutput>({
     key: "fos.next_best_action.lifecycle-legal",
     selectCurrentStage: (input) => input.currentStage,
     selectProposedActionType: (output) => output.actionType,
     selectImpliedStage: (output) => output.impliedStage,
-    allowedActionsByStage,
+    selectAllowedActionsByStage: (input) => input.allowedActionsByStage,
   });
 
   it("ALLOW: action type is permitted at the current stage (no implied stage move)", async () => {

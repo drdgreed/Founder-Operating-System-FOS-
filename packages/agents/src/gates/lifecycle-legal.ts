@@ -17,12 +17,19 @@ export interface LifecycleLegalGateOptions<TInput, TOutput> {
    * reimplementing it. */
   selectImpliedStage?: (output: TOutput) => OpportunityStage | undefined;
   /** Stage -> allowed action-type set, for actions with no implied stage
-   * move. FLAG: this action-type/stage-legality mapping is DERIVED — spec
-   * §8.6 says only "appropriate for the opportunity's current lifecycle
-   * stage," with no explicit action-type table. The agent (P1.4c-2) supplies
-   * the mapping that matches its own action-type vocabulary; this gate only
-   * enforces whatever mapping it is given. */
-  allowedActionsByStage: Readonly<Record<OpportunityStage, readonly string[]>>;
+   * move, from the run's own (Zod-validated) input context — never a
+   * hardcoded value baked into the gate at definition-construction time.
+   * FLAG (issue #78): this gate had no production callers as of #77 (only a
+   * static-value shape exercised by its own unit test); generalized here to
+   * a selector — matching every other gate in this file's convention
+   * (consent/cooldown/no-duplicate-task/etc. all read per-run caller input,
+   * never a fixed option) — so the derived action-type/stage-legality
+   * mapping (spec §8.6 gives no explicit table) can be supplied as
+   * least-privilege caller input alongside consent/cooldown/offer, per the
+   * #60 precedent, rather than fixed at gate-construction time. */
+  selectAllowedActionsByStage: (
+    input: TInput,
+  ) => Readonly<Record<OpportunityStage, readonly string[]>>;
 }
 
 /**
@@ -50,7 +57,8 @@ export function lifecycleLegalGate<TInput, TOutput>(
         return { allowed: true };
       }
       const actionType = options.selectProposedActionType(ctx.output);
-      const allowedActions = options.allowedActionsByStage[current] ?? [];
+      const allowedActionsByStage = options.selectAllowedActionsByStage(ctx.input);
+      const allowedActions = allowedActionsByStage[current] ?? [];
       if (!allowedActions.includes(actionType)) {
         return {
           allowed: false,

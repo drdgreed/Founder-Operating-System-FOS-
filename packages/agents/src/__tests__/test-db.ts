@@ -352,3 +352,66 @@ export async function seedObjectionIntelligenceFixture(
 
   return { workspace, product: prod, person: personRow, opportunity, interaction: interactionRow };
 }
+
+/**
+ * Seeds an EnrollmentOpportunity + Person chain for the
+ * `fos.next_best_action` agent tests (issue #78) — no Interaction is needed
+ * (unlike `seedObjectionIntelligenceFixture`/`seedPostCallSynthesisFixture`):
+ * this agent's ownership assertion is opportunity-only (see
+ * `loadOwnedOpportunity` in `definitions/next-best-action.ts`). Defaults the
+ * opportunity to `contacted` — a non-terminal stage with legal outgoing
+ * edges, so a test can freely exercise both legal and illegal proposed
+ * stages/action types.
+ *
+ * Accepts an optional already-seeded `workspace` row for the same reason as
+ * the other fixtures: exercising the cross-workspace ownership check.
+ */
+export async function seedNextBestActionFixture(
+  db: Awaited<ReturnType<typeof createTestDb>>["db"],
+  existingWorkspace?: Awaited<ReturnType<typeof seedWorkspace>>,
+) {
+  const workspace = existingWorkspace ?? (await seedWorkspace(db));
+
+  const [prod] = await db
+    .insert(product)
+    .values({
+      workspaceId: workspace.id,
+      productKey: `career-foundry-${randomUUID().slice(0, 8)}`,
+      name: "Career Foundry",
+      productType: "product",
+      parentProductId: null,
+    })
+    .returning();
+  if (!prod) throw new Error("seedNextBestActionFixture: product insert returned no row");
+
+  const [personRow] = await db
+    .insert(person)
+    .values({
+      workspaceId: workspace.id,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      currentRole: "Data Analyst",
+      currentCompany: "Acme Corp",
+      location: "Remote",
+      source: "website_application",
+      lifecycleType: "applicant",
+    })
+    .returning();
+  if (!personRow) throw new Error("seedNextBestActionFixture: person insert returned no row");
+
+  const [opportunity] = await db
+    .insert(enrollmentOpportunity)
+    .values({
+      workspaceId: workspace.id,
+      productId: prod.id,
+      personId: personRow.id,
+      stage: "contacted",
+      currency: "USD",
+      version: 1,
+    })
+    .returning();
+  if (!opportunity)
+    throw new Error("seedNextBestActionFixture: enrollment_opportunity insert returned no row");
+
+  return { workspace, product: prod, person: personRow, opportunity };
+}

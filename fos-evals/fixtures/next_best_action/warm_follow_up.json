@@ -1,0 +1,45 @@
+{
+  "fixture_id": "next_best_action.warm_follow_up",
+  "agent_key": "fos.next_best_action",
+  "description": "Standard happy path: no cooldown, consent recorded for email, no duplicate/conflicting activity, opportunity mid-lifecycle. All 8 deterministic gates should pass and the run should recommend a single, appropriately-scoped follow-up email.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000441",
+      "stage": "contacted",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000442",
+      "firstName": "Priya",
+      "lastName": "Nair"
+    },
+    "consentedChannels": ["email"],
+    "now": "2026-01-10T00:00:00.000Z",
+    "cooldownUntil": null,
+    "existingOpenActions": [],
+    "scheduledActivities": [],
+    "availableOffers": ["cohort-2026-a"],
+    "allowedActionsByStage": {
+      "contacted": ["send_follow_up_email", "send_follow_up_sms", "internal_task", "no_action"]
+    }
+  },
+  "expected": {
+    "status": "succeeded",
+    "gate_outcomes": {
+      "fos.next_best_action.mode-allowed": "pass",
+      "fos.next_best_action.consent": "pass",
+      "fos.next_best_action.cooldown": "pass",
+      "fos.next_best_action.lifecycle-legal": "pass",
+      "fos.next_best_action.no-duplicate-task": "pass",
+      "fos.next_best_action.no-scheduled-activity-conflict": "pass",
+      "fos.next_best_action.not-terminal-status": "pass",
+      "fos.next_best_action.offer-available": "pass",
+      "fos.next_best_action.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "actionType is 'send_follow_up_email' with channel 'email' and isContact true",
+      "offer is 'cohort-2026-a' (in the available-offer set)",
+      "summary and rationale contain no employment/salary/interview guarantee"
+    ]
+  }
+}
