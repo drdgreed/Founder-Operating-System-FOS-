@@ -4,8 +4,14 @@ export interface ConsentGateOptions<TInput, TOutput> {
   key: string;
   /** The channel (e.g. "email", "sms") the proposed action would contact the
    * person through, or `undefined` for an action that contacts no channel
-   * (e.g. an internal task) — always allowed. */
-  selectProposedActionChannel: (output: TOutput) => string | undefined;
+   * (e.g. an internal task) — always allowed. Receives BOTH `output` and
+   * `input`: for `fos.next_best_action` the channel is a model-authored
+   * OUTPUT field, but for `fos.personalized_follow_up` (issue #82) the channel
+   * is a caller-supplied INPUT field (the founder drafts a follow-up FOR a
+   * specific channel), so the selector must be able to read either side. The
+   * second parameter is additive and backward-compatible — existing
+   * single-arg `(output) => …` selectors keep working. */
+  selectProposedActionChannel: (output: TOutput, input: TInput) => string | undefined;
   /** Channels for which consent has been AFFIRMATIVELY recorded — the
    * ALLOWLIST (FOUNDER DECISION, issue #78: "option B" — opt-in / fail-
    * closed), from the run's own (Zod-validated) input context — never from
@@ -37,7 +43,7 @@ export function consentGate<TInput, TOutput>(
   return {
     key: options.key,
     evaluate(ctx: GateContext<TInput, TOutput>): GateResult {
-      const channel = options.selectProposedActionChannel(ctx.output);
+      const channel = options.selectProposedActionChannel(ctx.output, ctx.input);
       if (channel === undefined) {
         return { allowed: true };
       }

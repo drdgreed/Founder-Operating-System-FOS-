@@ -415,3 +415,66 @@ export async function seedNextBestActionFixture(
 
   return { workspace, product: prod, person: personRow, opportunity };
 }
+
+/**
+ * Seeds an EnrollmentOpportunity + Person chain for the
+ * `fos.personalized_follow_up` agent tests (issue #82) — no Interaction is
+ * needed: like `fos.next_best_action`, this agent's ownership assertion is
+ * opportunity-only (see `loadOwnedOpportunity` in
+ * `definitions/personalized-follow-up.ts`). Defaults the opportunity to
+ * `contacted` (a non-terminal stage) — mirrors `seedNextBestActionFixture`.
+ *
+ * Accepts an optional already-seeded `workspace` row for the same reason as
+ * the other fixtures: exercising the cross-workspace ownership check.
+ */
+export async function seedPersonalizedFollowUpFixture(
+  db: Awaited<ReturnType<typeof createTestDb>>["db"],
+  existingWorkspace?: Awaited<ReturnType<typeof seedWorkspace>>,
+) {
+  const workspace = existingWorkspace ?? (await seedWorkspace(db));
+
+  const [prod] = await db
+    .insert(product)
+    .values({
+      workspaceId: workspace.id,
+      productKey: `career-foundry-${randomUUID().slice(0, 8)}`,
+      name: "Career Foundry",
+      productType: "product",
+      parentProductId: null,
+    })
+    .returning();
+  if (!prod) throw new Error("seedPersonalizedFollowUpFixture: product insert returned no row");
+
+  const [personRow] = await db
+    .insert(person)
+    .values({
+      workspaceId: workspace.id,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      currentRole: "Data Analyst",
+      currentCompany: "Acme Corp",
+      location: "Remote",
+      source: "website_application",
+      lifecycleType: "applicant",
+    })
+    .returning();
+  if (!personRow) throw new Error("seedPersonalizedFollowUpFixture: person insert returned no row");
+
+  const [opportunity] = await db
+    .insert(enrollmentOpportunity)
+    .values({
+      workspaceId: workspace.id,
+      productId: prod.id,
+      personId: personRow.id,
+      stage: "contacted",
+      currency: "USD",
+      version: 1,
+    })
+    .returning();
+  if (!opportunity)
+    throw new Error(
+      "seedPersonalizedFollowUpFixture: enrollment_opportunity insert returned no row",
+    );
+
+  return { workspace, product: prod, person: personRow, opportunity };
+}

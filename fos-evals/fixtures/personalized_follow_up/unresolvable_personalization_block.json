@@ -1,0 +1,45 @@
+{
+  "fixture_id": "personalized_follow_up.unresolvable_personalization_block",
+  "agent_key": "fos.personalized_follow_up",
+  "description": "An initial-response follow-up whose personalization cites a sourceRef that is not present in evidenceRecords. The facts-resolve-to-sources gate blocks — every personalization must be grounded in a source the model was actually given.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000841",
+      "stage": "new_lead",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000842",
+      "firstName": "Ada",
+      "lastName": "Lovelace"
+    },
+    "followUpType": "initial_response",
+    "channel": "email",
+    "consentedChannels": ["email"],
+    "approvedClaims": ["Our program includes weekly live coaching sessions."],
+    "capabilities": ["Weekly live coaching"],
+    "availableCTAs": ["Reply to get started"],
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I want to move into a senior data analyst role within 3 months."
+      }
+    ]
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "artifact": null,
+    "gate_outcomes": {
+      "fos.personalized_follow_up.mode-allowed": "pass",
+      "fos.personalized_follow_up.consent": "pass",
+      "fos.personalized_follow_up.cta-available": "pass",
+      "fos.personalized_follow_up.claims-in-approved-set": "pass",
+      "fos.personalized_follow_up.facts-resolve-to-sources": "block"
+    },
+    "output_schema_constraints": [
+      "a personalizationSources[].sourceRef (e.g. 'nonexistent.ref') is absent from evidenceRecords",
+      "run is policy_blocked at facts-resolve-to-sources; zero artifact rows"
+    ]
+  }
+}

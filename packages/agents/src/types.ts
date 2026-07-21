@@ -37,7 +37,16 @@ export interface RunAgentDeps {
 }
 
 export interface ArtifactSpec<TInput, TOutput> {
-  artifactType: ArtifactType;
+  /**
+   * The canonical artifact type. Either a single static value (the common
+   * case) OR a function of the run's input/output for agents whose artifact
+   * type is DRIVEN by their input — e.g. `fos.personalized_follow_up` (issue
+   * #82), whose `followUpType` selects one of the six §7.1 follow-up types.
+   * Backward-compatible: a plain `ArtifactType` still satisfies this. The
+   * resolved value must always be a member of the canonical `artifact_type`
+   * enum (a function cannot widen it — its return type is `ArtifactType`).
+   */
+  artifactType: ArtifactType | ((input: TInput, output: TOutput) => ArtifactType);
   domain: ArtifactDomain;
   buildTitle(input: TInput, output: TOutput): string;
   buildBodyMarkdown(input: TInput, output: TOutput): string;

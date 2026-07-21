@@ -312,7 +312,10 @@ export async function runAgent<TInput, TOutput>(
       const result = await createArtifact(tx, {
         workspaceId: runContext.workspaceId,
         productId: runContext.productId ?? null,
-        artifactType: definition.artifact.artifactType,
+        artifactType:
+          typeof definition.artifact.artifactType === "function"
+            ? definition.artifact.artifactType(input, output)
+            : definition.artifact.artifactType,
         domain: definition.artifact.domain,
         title: definition.artifact.buildTitle(input, output),
         bodyMarkdown: definition.artifact.buildBodyMarkdown(input, output),

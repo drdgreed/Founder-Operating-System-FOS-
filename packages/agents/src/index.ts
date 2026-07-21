@@ -13,3 +13,4 @@ export * from "./definitions/call-preparation.js";
 export * from "./definitions/post-call-synthesis.js";
 export * from "./definitions/objection-intelligence.js";
 export * from "./definitions/next-best-action.js";
+export * from "./definitions/personalized-follow-up.js";

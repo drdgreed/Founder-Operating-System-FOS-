@@ -1,0 +1,44 @@
+{
+  "fixture_id": "personalized_follow_up.unapproved_claim_block",
+  "agent_key": "fos.personalized_follow_up",
+  "description": "An information-request follow-up whose draft makes a claim that is NOT in the approved-claims set. The claims-in-approved-set gate blocks — the model can never introduce an unapproved claim into applicant-facing content.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000821",
+      "stage": "contacted",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000822",
+      "firstName": "Ada",
+      "lastName": "Lovelace"
+    },
+    "followUpType": "information_request",
+    "channel": "email",
+    "consentedChannels": ["email"],
+    "approvedClaims": ["Our program includes weekly live coaching sessions."],
+    "capabilities": ["Weekly live coaching"],
+    "availableCTAs": ["Reply with your questions"],
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I want to move into a senior data analyst role within 3 months."
+      }
+    ]
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "artifact": null,
+    "gate_outcomes": {
+      "fos.personalized_follow_up.mode-allowed": "pass",
+      "fos.personalized_follow_up.consent": "pass",
+      "fos.personalized_follow_up.cta-available": "pass",
+      "fos.personalized_follow_up.claims-in-approved-set": "block"
+    },
+    "output_schema_constraints": [
+      "the draft's claimsManifest contains a claim absent from approvedClaims (e.g. 'Our alumni all get hired at FAANG.')",
+      "run is policy_blocked at claims-in-approved-set; zero artifact rows"
+    ]
+  }
+}

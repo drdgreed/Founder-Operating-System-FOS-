@@ -1,0 +1,66 @@
+{
+  "fixture_id": "personalized_follow_up.offer_follow_up_happy",
+  "agent_key": "fos.personalized_follow_up",
+  "description": "Baseline happy path: an offer follow-up on a consented channel (email), one primary CTA drawn from availableCTAs, claims all in the approved set, and every personalization citing an evidence record. All gates pass; the result is an in_review DRAFT routed to founder approval — NEVER sent.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000801",
+      "stage": "offered",
+      "primaryGoal": "Transition into a senior data analyst role",
+      "targetRole": "Senior Data Analyst",
+      "targetTimeline": "3 months"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000802",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "currentRole": "Data Analyst",
+      "currentCompany": "Acme Corp",
+      "location": "Remote"
+    },
+    "followUpType": "offer_follow_up",
+    "channel": "email",
+    "consentedChannels": ["email"],
+    "approvedClaims": [
+      "Our program includes weekly live coaching sessions.",
+      "Graduates get access to the alumni community and job board."
+    ],
+    "capabilities": ["Weekly live coaching", "Alumni community access"],
+    "availableCTAs": ["Book a 15-minute call", "Reply to confirm your spot"],
+    "evidenceRecords": [
+      {
+        "sourceRef": "application.raw_payload.goal",
+        "sourceType": "application_field",
+        "content": "I want to move into a senior data analyst role within 3 months."
+      },
+      {
+        "sourceRef": "person.current_role",
+        "sourceType": "person_field",
+        "content": "Currently a Data Analyst at Acme Corp."
+      }
+    ]
+  },
+  "expected": {
+    "status": "succeeded",
+    "artifact": {
+      "artifactType": "offer_follow_up",
+      "domain": "enrollment",
+      "approvalStatus": "in_review",
+      "sent": false
+    },
+    "gate_outcomes": {
+      "fos.personalized_follow_up.mode-allowed": "pass",
+      "fos.personalized_follow_up.consent": "pass",
+      "fos.personalized_follow_up.cta-available": "pass",
+      "fos.personalized_follow_up.claims-in-approved-set": "pass",
+      "fos.personalized_follow_up.facts-resolve-to-sources": "pass",
+      "fos.personalized_follow_up.no-prohibited-guarantee": "pass"
+    },
+    "output_schema_constraints": [
+      "exactly one primaryCTA, and it is a member of availableCTAs",
+      "every claimsManifest[] entry is a member of approvedClaims",
+      "every personalizationSources[].sourceRef is present in evidenceRecords",
+      "no guarantee language anywhere in subject/body/primaryCTA/claims/capabilities/personalization/riskFlags"
+    ]
+  }
+}
