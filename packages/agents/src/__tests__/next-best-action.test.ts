@@ -76,7 +76,6 @@ function buildOutput(overrides: Partial<NextBestActionOutput> = {}): NextBestAct
     actionType: "send_follow_up_email",
     actionTarget: "person-target-1",
     channel: "email",
-    isContact: true,
     offer: "cohort-2026-a",
     summary: "Ada has gone quiet since the last touch; a warm follow-up email is due.",
     rationale:
@@ -254,11 +253,12 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     // "contacted" only permits send_follow_up_email/send_follow_up_sms/
     // internal_task/no_action in ALLOWED_ACTIONS_BY_STAGE — propose_offer
     // has no implied stage here, so it falls through to the table lookup
-    // and is blocked.
+    // and is blocked. propose_offer is a DERIVED contact action (issue #78),
+    // so it is given a consented channel ("email" is in the default
+    // consentedChannels) to pass consent+cooldown and reach the INTENDED
+    // lifecycle-legal gate.
     const modelClient = new FakeModelClient([
-      validResult(
-        buildOutput({ actionType: "propose_offer", channel: undefined, isContact: false }),
-      ),
+      validResult(buildOutput({ actionType: "propose_offer", channel: "email" })),
     ]);
     const runContext: RunAgentContext = {
       workspaceId: fixture.workspace.id,
@@ -321,7 +321,6 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
           actionType: "internal_task",
           actionTarget: "person-target-1",
           channel: undefined,
-          isContact: false,
         }),
       ),
     ]);
@@ -359,7 +358,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
       .set({ stage: "enrolled" })
       .where(eq(enrollmentOpportunity.id, fixture.opportunity.id));
     const modelClient = new FakeModelClient([
-      validResult(buildOutput({ actionType: "no_action", channel: undefined, isContact: false })),
+      validResult(buildOutput({ actionType: "no_action", channel: undefined })),
     ]);
     const runContext: RunAgentContext = {
       workspaceId: fixture.workspace.id,
@@ -535,7 +534,6 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
         buildOutput({
           actionType: "internal_task",
           channel: undefined,
-          isContact: false,
         }),
       ),
     ]);
@@ -562,5 +560,101 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
       .from(enrollmentActionRecommendation)
       .where(eq(enrollmentActionRecommendation.opportunityId, fixture.opportunity.id));
     expect(rows).toHaveLength(1);
+  });
+
+  it("FOS1-NBA-14: non-datetime recommendedDueAt is rejected at output validation — evaluation_failed, ZERO recommendation rows, no artifact (guarantee-leak field is now .datetime()-constrained)", async () => {
+    const fixture = await seedNextBestActionFixture(ctx.db);
+    await enableFlag(fixture.workspace.id);
+    // A guarantee phrase smuggled into the (previously unconstrained,
+    // unscanned) recommendedDueAt free-text field. It is now
+    // `.datetime()`-constrained, so it fails Zod output validation (which
+    // also prevents an Invalid-Date reaching the timestamptz insert) BEFORE
+    // any founder-facing recommendation can be produced. The pipeline
+    // repair-retries once, so two scripted results are queued.
+    const badOutput = buildOutput({
+      recommendedDueAt: "guaranteed placement within 30 days",
+    });
+    const modelClient = new FakeModelClient([validResult(badOutput), validResult(badOutput)]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient },
+      fosNextBestActionAgentDefinition,
+      buildInput(fixture),
+      runContext,
+    );
+
+    expect(result.status).toBe("evaluation_failed");
+    expect(result.artifact).toBeUndefined();
+    expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
+    expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
+  });
+
+  it("FOS1-NBA-15: consent bypass closed — a DERIVED contact action with channel OMITTED cannot skip consent → policy_blocked at consent, ZERO recommendation rows, no artifact", async () => {
+    const fixture = await seedNextBestActionFixture(ctx.db);
+    await enableFlag(fixture.workspace.id);
+    // Pre-fix, a contact action could omit `channel` to make the consent
+    // selector return undefined (exempt). Now contact-ness is derived from
+    // actionType, so an omitted channel yields the fail-closed sentinel that
+    // can never be in the allowlist → BLOCKED.
+    const modelClient = new FakeModelClient([
+      validResult(buildOutput({ actionType: "send_follow_up_email", channel: undefined })),
+    ]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient },
+      fosNextBestActionAgentDefinition,
+      buildInput(fixture, { consentedChannels: ["email"] }),
+      runContext,
+    );
+
+    expect(result.status).toBe("policy_blocked");
+    expect(result.artifact).toBeUndefined();
+    expect(result.gateEvaluations?.find((g) => g.key.endsWith(".consent"))?.allowed).toBe(false);
+    expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
+    expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
+  });
+
+  it("FOS1-NBA-16: cooldown bypass closed — a DERIVED contact action cannot escape an active cooldown (no model-authored isContact:false) → policy_blocked at cooldown, ZERO recommendation rows, no artifact", async () => {
+    const fixture = await seedNextBestActionFixture(ctx.db);
+    await enableFlag(fixture.workspace.id);
+    // Pre-fix, a contact could set isContact:false to skip cooldown. That
+    // field is gone; contact-ness is derived from actionType. A genuine
+    // contact action (send_follow_up_email, consented channel) with an
+    // active cooldown is now blocked at cooldown regardless.
+    const modelClient = new FakeModelClient([
+      validResult(buildOutput({ actionType: "send_follow_up_email", channel: "email" })),
+    ]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient },
+      fosNextBestActionAgentDefinition,
+      buildInput(fixture, {
+        consentedChannels: ["email"],
+        now: "2026-01-01T00:00:00.000Z",
+        cooldownUntil: "2026-01-05T00:00:00.000Z",
+      }),
+      runContext,
+    );
+
+    expect(result.status).toBe("policy_blocked");
+    expect(result.artifact).toBeUndefined();
+    expect(result.gateEvaluations?.find((g) => g.key.endsWith(".cooldown"))?.allowed).toBe(false);
+    expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
+    expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
 });

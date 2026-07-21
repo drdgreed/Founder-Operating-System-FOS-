@@ -188,13 +188,12 @@ export const nextBestActionOutputSchema = z.object({
    * duplicate/conflict gates alongside `actionType`. */
   actionTarget: z.string().min(1),
   /** The channel a CONTACT action would use (e.g. "email", "sms").
-   * Undefined/absent for a non-contact action (e.g. `internal_task`) —
-   * always allowed by `consentGate`/`cooldownGate`. */
+   * Undefined/absent for a non-contact action (e.g. `internal_task`).
+   * Contact-ness itself is NOT read from the model (see
+   * `nbaActionIsContact` / the consent+cooldown wiring below) — it is
+   * DERIVED from the closed `actionType` enum; `channel` only supplies the
+   * concrete channel a derived-contact action would use. */
   channel: z.string().optional(),
-  /** Whether this proposed action contacts the person at all — subject to
-   * `cooldownGate`. Structurally independent of `channel` so a contact
-   * action can be flagged even before a channel is chosen. */
-  isContact: z.boolean(),
   /** If this action implies moving the opportunity to a specific stage
    * (e.g. proposing an offer implies `offered`), the target stage;
    * otherwise absent and the action is checked against
@@ -208,8 +207,13 @@ export const nextBestActionOutputSchema = z.object({
   businessImpact: z.enum(NBA_BUSINESS_IMPACT_VALUES),
   urgency: z.enum(NBA_URGENCY_VALUES),
   confidence: z.enum(NBA_CONFIDENCE_VALUES),
-  /** ISO-8601 timestamp, or absent if no specific due date is recommended. */
-  recommendedDueAt: z.string().optional(),
+  /** ISO-8601 datetime, or absent if no specific due date is recommended.
+   * `.datetime()`-constrained (issue #78 3-layer gate): this is model
+   * free text rendered into the founder-facing artifact, so it is BOTH a
+   * closed ISO-datetime format (no arbitrary prose can be smuggled in, and
+   * no Invalid-Date can reach the timestamptz insert) AND scanned by the
+   * guarantee gate as defense-in-depth. */
+  recommendedDueAt: z.string().datetime().optional(),
 });
 
 export type NextBestActionOutput = z.infer<typeof nextBestActionOutputSchema>;
@@ -218,6 +222,24 @@ export type NextBestActionOutput = z.infer<typeof nextBestActionOutputSchema>;
 
 export const FOS_NEXT_BEST_ACTION_AGENT_KEY = "fos.next_best_action";
 export const FOS_NEXT_BEST_ACTION_FEATURE_FLAG_KEY = "fos.next_best_action";
+
+/** FLAG (issue #78 3-layer gate): contact-ness is DERIVED from the closed
+ * actionType enum, NOT trusted from a model-authored isContact/channel — a
+ * model could otherwise omit `channel` to skip consent or set isContact:false
+ * to skip cooldown on a genuine contact action. CONSERVATIVE classification:
+ * propose_offer is treated as a CONTACT (it communicates an offer to the
+ * person) — FOUNDER: confirm this. internal_task and no_action are the only
+ * non-contact types. */
+const NBA_CONTACT_ACTION_TYPES: ReadonlySet<string> = new Set([
+  "send_follow_up_email",
+  "send_follow_up_sms",
+  "schedule_conversation",
+  "propose_offer",
+]);
+function nbaActionIsContact(actionType: string): boolean {
+  return NBA_CONTACT_ACTION_TYPES.has(actionType);
+}
+const NBA_CONTACT_NO_CHANNEL_SENTINEL = "__contact_action_missing_channel__";
 
 function selectProposedAction(output: NextBestActionOutput): ActionKey {
   return { type: output.actionType, target: output.actionTarget };
@@ -251,12 +273,22 @@ export const fosNextBestActionAgentDefinition: AgentDefinition<
     // gates/consent.ts and the file header above.
     consentGate<NextBestActionInput, NextBestActionOutput>({
       key: "fos.next_best_action.consent",
-      selectProposedActionChannel: (output) => output.channel,
+      // Contact-ness DERIVED from actionType (issue #78 3-layer gate), not
+      // trusted from the model. A derived-contact action WITHOUT a channel
+      // yields a sentinel that can never be in `consentedChannels` → BLOCKED
+      // (fail-closed); a non-contact action yields `undefined` → exempt.
+      selectProposedActionChannel: (output) =>
+        nbaActionIsContact(output.actionType)
+          ? (output.channel ?? NBA_CONTACT_NO_CHANNEL_SENTINEL)
+          : undefined,
       selectConsentedChannels: (input) => input.consentedChannels,
     }),
     cooldownGate<NextBestActionInput, NextBestActionOutput>({
       key: "fos.next_best_action.cooldown",
-      selectIsContactAction: (output) => output.isContact,
+      // Contact-ness DERIVED from actionType (issue #78 3-layer gate): a
+      // model cannot set isContact:false to skip cooldown on a genuine
+      // contact action.
+      selectIsContactAction: (output) => nbaActionIsContact(output.actionType),
       selectNow: (input) => input.now,
       selectCooldownUntil: (input) => input.cooldownUntil,
     }),
@@ -290,13 +322,21 @@ export const fosNextBestActionAgentDefinition: AgentDefinition<
     }),
     noProhibitedGuaranteeGate<NextBestActionInput, NextBestActionOutput>({
       key: "fos.next_best_action.no-prohibited-guarantee",
-      // Keep in sync with `buildBodyMarkdown` below: `summary` and
-      // `rationale` are the ONLY free-text fields this output carries.
-      // Every other field (`actionType`, `channel`, `offer`,
-      // `businessImpact`, `urgency`, `confidence`, `impliedStage`) is a
-      // closed-set enum or a gate-validated identifier — none of them is
-      // model-authored free text a guarantee could be smuggled into.
-      selectText: (output) => [output.summary, output.rationale],
+      // Keep in sync with `buildBodyMarkdown` below. THREE model-authored
+      // fields are rendered into the founder-facing artifact: `summary`,
+      // `rationale`, and `recommendedDueAt`. `summary`/`rationale` are open
+      // free text; `recommendedDueAt` is now `.datetime()`-constrained (see
+      // the output schema) so it structurally cannot carry prose — but it is
+      // scanned here too as defense-in-depth (issue #78 3-layer gate). Every
+      // OTHER field (`actionType`, `channel`, `offer`, `businessImpact`,
+      // `urgency`, `confidence`, `impliedStage`) is a closed-set enum or a
+      // gate-validated identifier — none is free text a guarantee could be
+      // smuggled into.
+      selectText: (output) => [
+        output.summary,
+        output.rationale,
+        ...(output.recommendedDueAt ? [output.recommendedDueAt] : []),
+      ],
     }),
   ],
   artifact: {
@@ -323,9 +363,10 @@ export const fosNextBestActionAgentDefinition: AgentDefinition<
       ].join("\n"),
     buildClaimsManifest: (_input, output) => ({
       // Internal audit aid: the exact action identity this run recommended.
+      // Contact-ness is derived from `actionType` (see `nbaActionIsContact`),
+      // not a model-authored field, so it is not recorded separately here.
       actionType: output.actionType,
       actionTarget: output.actionTarget,
-      isContact: output.isContact,
     }),
   },
   // Stage 9b (canonical, atomic — issue #78's hard property #2): writes
