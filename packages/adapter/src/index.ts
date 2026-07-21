@@ -27,3 +27,16 @@ export {
   readNumberProperty,
   readSelectProperty,
 } from "./notion-properties.js";
+export {
+  artifactToFounderInboxProperties,
+  artifactFosVersion,
+  founderInboxProjectionPolicy,
+  type ArtifactRecordRow,
+  type FounderActionStatus,
+  type FounderInboxProjectionContext,
+} from "./founder-inbox-mapper.js";
+export {
+  projectFounderInboxItem,
+  type ProjectFounderInboxItemInput,
+  type ProjectFounderInboxItemResult,
+} from "./project-founder-inbox-item.js";
