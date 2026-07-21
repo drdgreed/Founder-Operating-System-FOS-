@@ -9,10 +9,40 @@ export interface EnrollmentOpportunityProjectionContext {
   syncStatus: ProjectionSyncStatus;
   /** The instant this projection write is happening — not the entity's own timestamps. */
   lastSyncedAt: Date;
+  /**
+   * P1.5b join-backed §7.2 field: the opportunity's OPEN objections
+   * (`objection_record` WHERE resolution_status='open'), ordered deterministically
+   * by the CALLER. Read-only projection of a RELATED entity — the mapper stays
+   * PURE, it does not query. Absent/undefined -> project as zero/empty
+   * (backward-compatible with P1.5a callers that never set it).
+   */
+  openObjections?: Array<{
+    category: string;
+    classification: string;
+    statement: string;
+    severity: string | null;
+  }>;
+  /**
+   * P1.5b join-backed §7.2 field: the most-recent artifact awaiting approval
+   * (`artifact_record.status='in_review'`) reached via
+   * `enrollment_action_recommendation`, resolved + deduplicated by the CALLER.
+   * `null`/absent -> project empty.
+   */
+  pendingArtifact?: { id: string; title: string; artifactType: string } | null;
+  /**
+   * Total DISTINCT in_review artifacts for this opportunity. Feeds the ">1"
+   * indicator on "Pending Artifact"; `pendingArtifact` is the first of them.
+   * Absent -> treated as 0 (or 1 when `pendingArtifact` is present).
+   */
+  pendingArtifactCount?: number;
 }
 
 /** Notion caps a single rich_text object's `content` at 2000 characters. */
 const NOTION_RICH_TEXT_MAX = 2000;
+/** Notion also caps a rich_text property's array at 100 objects. */
+const NOTION_RICH_TEXT_MAX_OBJECTS = 100;
+/** Visible marker appended when content is truncated at the 100-object cap. */
+const RICH_TEXT_TRUNCATION_MARKER = " […truncated]";
 
 /**
  * Notion rich_text property. `null` -> `{ rich_text: [] }`. A non-null string is
@@ -24,6 +54,11 @@ const NOTION_RICH_TEXT_MAX = 2000;
  * `validation_error`, silently dropping the whole projection. (Splitting on
  * UTF-16 code units can in theory divide a surrogate pair at a chunk boundary;
  * acceptable for the business prose these fields carry.)
+ *
+ * Notion ALSO caps a rich_text property's array at 100 objects — the "Objections"
+ * field concatenates an UNBOUNDED number of open objections, so a very large set
+ * could exceed 100 chunks and 400 the page write. Content beyond 100 objects is
+ * truncated with a VISIBLE marker (never a silent drop).
  */
 function richText(content: string | null) {
   if (content === null) return { rich_text: [] };
@@ -31,6 +66,16 @@ function richText(content: string | null) {
   const parts: { text: { content: string } }[] = [];
   for (let i = 0; i < content.length; i += NOTION_RICH_TEXT_MAX) {
     parts.push({ text: { content: content.slice(i, i + NOTION_RICH_TEXT_MAX) } });
+  }
+  if (parts.length > NOTION_RICH_TEXT_MAX_OBJECTS) {
+    const capped = parts.slice(0, NOTION_RICH_TEXT_MAX_OBJECTS);
+    const last = capped[capped.length - 1];
+    if (last) {
+      last.text.content =
+        last.text.content.slice(0, NOTION_RICH_TEXT_MAX - RICH_TEXT_TRUNCATION_MARKER.length) +
+        RICH_TEXT_TRUNCATION_MARKER;
+    }
+    return { rich_text: capped };
   }
   return { rich_text: parts };
 }
@@ -74,6 +119,43 @@ function majorUnitProp(cents: number | null) {
 }
 
 /**
+ * P1.5b: deterministic, human-readable summary of the open objections — one
+ * line each, `"[<classification>/<category>, <severity>] <statement>"` (the
+ * `, <severity>` segment is omitted when severity is null). Severity ranks a
+ * founder's urgency, so it IS rendered (not dropped). Returns `null` (-> empty
+ * rich_text) when there are none, so callers pass it straight to `richText`,
+ * whose chunking already protects an over-long `statement`. Order is the
+ * caller's (deterministic) query order — this helper does not sort.
+ */
+function renderObjectionsSummary(
+  objections: EnrollmentOpportunityProjectionContext["openObjections"],
+): string | null {
+  if (!objections || objections.length === 0) return null;
+  return objections
+    .map((o) => {
+      const tag = o.severity
+        ? `${o.classification}/${o.category}, ${o.severity}`
+        : `${o.classification}/${o.category}`;
+      return `[${tag}] ${o.statement}`;
+    })
+    .join("\n");
+}
+
+/**
+ * P1.5b: label for the pending (in_review) artifact — `"<title> [<type>]"`,
+ * plus a `" (+N more awaiting approval)"` suffix when more than one distinct
+ * artifact is awaiting approval. `null` (-> empty rich_text) when there is none.
+ */
+function renderPendingArtifact(
+  pending: EnrollmentOpportunityProjectionContext["pendingArtifact"],
+  totalCount: number,
+): string | null {
+  if (!pending) return null;
+  const label = `${pending.title} [${pending.artifactType}]`;
+  return totalCount > 1 ? `${label} (+${totalCount - 1} more awaiting approval)` : label;
+}
+
+/**
  * Pure mapper: EnrollmentOpportunity (§9.4) -> Notion page-properties object.
  *
  * Emits all 7 PATCH-SET-01 §C1 hidden properties (FOS Version per §C2: for a
@@ -81,8 +163,11 @@ function majorUnitProp(cents: number | null) {
  * Enrollment Pipeline fields sourced from the opportunity row's OWN columns
  * (P1.5a, issue #86): summary, stage, fit, value, last interaction, next
  * action, and the canonical link. The two join-requiring §7.2 fields —
- * `objections` and `pending artifact` — are DEFERRED to P1.5b (they need DB
- * joins this minimal mapper signature does not have).
+ * open `objections` and the `pending artifact` — are added in P1.5b (issue
+ * #88): the mapper STAYS PURE, so the CALLER runs the DB joins and passes the
+ * resolved rows in via `ctx.openObjections` / `ctx.pendingArtifact(Count)`.
+ * Both ctx fields are OPTIONAL — absent -> project as zero/empty, keeping
+ * P1.5a callers that never set them working unchanged.
  *
  * VALUE UNITS: `estimated_value_cents` / `actual_value_cents` are stored as
  * integer cents but projected as MAJOR CURRENCY UNITS (cents / 100) under the
@@ -154,6 +239,26 @@ export function enrollmentOpportunityToNotionProperties(
 
     // Canonical link (record id until the P1.9 dashboard ships deep links)
     "Canonical Link": richText(opp.id),
+
+    // --- §7.2 join-backed fields (P1.5b, issue #88) ---
+    // Read-only projections of RELATED entities (objection_record /
+    // artifact_record via enrollment_action_recommendation), NOT the
+    // opportunity's own columns — the CALLER supplies them via ctx. Absent ctx
+    // fields degrade to zero/empty (backward-compatible with P1.5a callers).
+
+    // Count of open objections (0 when none/absent).
+    "Open Objections": numberProp(ctx.openObjections?.length ?? 0),
+    // Human-readable rendering of the open objections; empty when none.
+    Objections: richText(renderObjectionsSummary(ctx.openObjections)),
+    // The most-recent in_review artifact (+ "+N more" when >1); empty when none.
+    "Pending Artifact": richText(
+      renderPendingArtifact(
+        ctx.pendingArtifact,
+        ctx.pendingArtifactCount ?? (ctx.pendingArtifact ? 1 : 0),
+      ),
+    ),
+    // Canonical link to the pending artifact (its record id); empty when none.
+    "Pending Artifact Link": richText(ctx.pendingArtifact?.id ?? null),
   };
 }
 
@@ -162,8 +267,11 @@ export function enrollmentOpportunityToNotionProperties(
  * is `canonical_read_only`: P1.5a writes FOS->Notion only; nothing here lets a
  * Notion edit flow back (that's the reconciliation + command-intake slices,
  * 0.2c/0.2d). The P1.5a §7.2 columns are listed alongside the pre-existing
- * id/version/stage entries; the deferred join fields (objections, pending
- * artifact — P1.5b) are intentionally absent.
+ * id/version/stage entries. The P1.5b join fields (open objections, pending
+ * artifact) are INTENTIONALLY still absent here: this policy lists
+ * EnrollmentOpportunity's OWN columns, and those two are read-only projections
+ * of RELATED entities (objection_record / artifact_record), not opp columns —
+ * so they do not belong in this field-level policy map.
  */
 export const enrollmentOpportunityProjectionPolicy = {
   entity_type: "EnrollmentOpportunity",

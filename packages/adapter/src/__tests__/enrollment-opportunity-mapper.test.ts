@@ -302,6 +302,22 @@ describe("enrollmentOpportunityToNotionProperties §7.2 fields (issue #86, P1.5a
     expect(properties.Summary).toEqual({ rich_text: [{ text: { content: exact } }] });
   });
 
+  it("FOS1-PRJ-06c: content past Notion's 100-object array cap truncates to 100 with a visible marker", () => {
+    // 200,001 chars -> 101 chunks pre-cap; Notion caps a rich_text array at 100
+    // objects, so the page write would 400. Must cap at 100 with a visible marker.
+    const huge = "c".repeat(2000 * 100 + 1);
+    const opp = makeOpportunity({ nextActionSummary: huge });
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, CTX) as {
+      "Next Action": { rich_text: { text: { content: string } }[] };
+    };
+    const parts = properties["Next Action"].rich_text;
+
+    expect(parts).toHaveLength(100);
+    expect(parts.every((p) => p.text.content.length <= 2000)).toBe(true);
+    expect(parts[99]!.text.content.endsWith(" […truncated]")).toBe(true);
+  });
+
   it("FOS1-PRJ-07: empty-string currency projects as { select: null }, not an invalid empty-name select", () => {
     // Empty string satisfies the column's NOT NULL; Notion rejects a select
     // whose option name is empty, so it must clear the property instead.
@@ -310,5 +326,137 @@ describe("enrollmentOpportunityToNotionProperties §7.2 fields (issue #86, P1.5a
     const properties = enrollmentOpportunityToNotionProperties(opp, CTX);
 
     expect(properties.Currency).toEqual({ select: null });
+  });
+});
+
+describe("enrollmentOpportunityToNotionProperties §7.2 join-backed fields (issue #88, P1.5b)", () => {
+  it("FOS1-PRJ-08: open objections -> count + deterministic rendered summary", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      openObjections: [
+        {
+          classification: "price",
+          category: "budget",
+          statement: "The program is out of my current budget.",
+          severity: "high",
+        },
+        {
+          classification: "timing",
+          category: "schedule",
+          statement: "I can't start until Q4.",
+          severity: null,
+        },
+      ],
+    });
+
+    expect(properties["Open Objections"]).toEqual({ number: 2 });
+    expect(properties.Objections).toEqual({
+      rich_text: [
+        {
+          text: {
+            content:
+              "[price/budget, high] The program is out of my current budget.\n[timing/schedule] I can't start until Q4.",
+          },
+        },
+      ],
+    });
+  });
+
+  it("FOS1-PRJ-09: no objections (empty array) -> { number: 0 } + empty rich_text", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      openObjections: [],
+    });
+
+    expect(properties["Open Objections"]).toEqual({ number: 0 });
+    expect(properties.Objections).toEqual({ rich_text: [] });
+  });
+
+  it("FOS1-PRJ-10: objections field ABSENT from ctx (P1.5a caller) -> { number: 0 } + empty rich_text", () => {
+    const opp = makeOpportunity();
+
+    // CTX has no openObjections/pendingArtifact — backward-compat with P1.5a.
+    const properties = enrollmentOpportunityToNotionProperties(opp, CTX);
+
+    expect(properties["Open Objections"]).toEqual({ number: 0 });
+    expect(properties.Objections).toEqual({ rich_text: [] });
+    expect(properties["Pending Artifact"]).toEqual({ rich_text: [] });
+    expect(properties["Pending Artifact Link"]).toEqual({ rich_text: [] });
+  });
+
+  it("FOS1-PRJ-11: single pending artifact -> title/type label + id link, no count suffix", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      pendingArtifact: {
+        id: "art-1",
+        title: "Objection response draft",
+        artifactType: "objection_response",
+      },
+      pendingArtifactCount: 1,
+    });
+
+    expect(properties["Pending Artifact"]).toEqual({
+      rich_text: [{ text: { content: "Objection response draft [objection_response]" } }],
+    });
+    expect(properties["Pending Artifact Link"]).toEqual({
+      rich_text: [{ text: { content: "art-1" } }],
+    });
+  });
+
+  it("FOS1-PRJ-12: pending artifact null -> both fields empty rich_text", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      pendingArtifact: null,
+      pendingArtifactCount: 0,
+    });
+
+    expect(properties["Pending Artifact"]).toEqual({ rich_text: [] });
+    expect(properties["Pending Artifact Link"]).toEqual({ rich_text: [] });
+  });
+
+  it("FOS1-PRJ-13: >1 pending artifacts -> most-recent shown with '+N more awaiting approval'", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      pendingArtifact: {
+        id: "art-recent",
+        title: "Offer follow-up",
+        artifactType: "offer_follow_up",
+      },
+      pendingArtifactCount: 3,
+    });
+
+    expect(properties["Pending Artifact"]).toEqual({
+      rich_text: [
+        { text: { content: "Offer follow-up [offer_follow_up] (+2 more awaiting approval)" } },
+      ],
+    });
+    // The link always points at the single most-recent artifact.
+    expect(properties["Pending Artifact Link"]).toEqual({
+      rich_text: [{ text: { content: "art-recent" } }],
+    });
+  });
+
+  it("FOS1-PRJ-14: pending artifact present but count absent -> treated as 1 (no suffix)", () => {
+    const opp = makeOpportunity();
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, {
+      ...CTX,
+      pendingArtifact: { id: "art-1", title: "Draft", artifactType: "call_brief" },
+      // pendingArtifactCount intentionally omitted
+    });
+
+    expect(properties["Pending Artifact"]).toEqual({
+      rich_text: [{ text: { content: "Draft [call_brief]" } }],
+    });
   });
 });

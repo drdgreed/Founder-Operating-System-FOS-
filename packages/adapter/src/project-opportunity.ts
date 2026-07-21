@@ -1,5 +1,10 @@
-import { and, eq } from "drizzle-orm";
-import { projection } from "@fos/db/schema";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  projection,
+  objectionRecord,
+  enrollmentActionRecommendation,
+  artifactRecord,
+} from "@fos/db/schema";
 import type { Db } from "@fos/db/services";
 import type { NotionClient } from "@fos/notion";
 import {
@@ -66,12 +71,88 @@ export async function projectOpportunity(
     )
     .limit(1);
 
+  // --- P1.5b (issue #88): join-backed §7.2 fields. The mapper is PURE, so the
+  // caller runs these queries and passes the resolved rows into the ctx. Both
+  // are direct workspace-scoped (opportunity.workspaceId) on TOP of the
+  // opportunity-id scope — the domain's direct-scoping convention, for authz
+  // safety even though opportunity_id alone resolves the workspace transitively.
+
+  // 1) Open objections: objection_record for THIS opportunity whose resolution
+  // lifecycle is still 'open'. Ordered by created_at (then id, to break ties)
+  // for a deterministic projection.
+  const openObjections = await db
+    .select({
+      category: objectionRecord.category,
+      classification: objectionRecord.classification,
+      statement: objectionRecord.statement,
+      severity: objectionRecord.severity,
+    })
+    .from(objectionRecord)
+    .where(
+      and(
+        eq(objectionRecord.opportunityId, opportunity.id),
+        eq(objectionRecord.workspaceId, opportunity.workspaceId),
+        eq(objectionRecord.resolutionStatus, "open"),
+      ),
+    )
+    .orderBy(objectionRecord.createdAt, objectionRecord.id);
+
+  // 2) Pending artifact: artifact_record rows in the human-gate 'in_review'
+  // state, reached by joining enrollment_action_recommendation on
+  // recommendation.artifact_record_id = artifact_record.id. The INNER join
+  // drops recommendations with a NULL artifact_record_id (NULL never matches),
+  // so those never reach here and never crash. selectDistinct dedupes the case
+  // where several recommendations point to the SAME artifact (identical artifact
+  // columns collapse to one row). Ordered by artifact updated_at DESC (most
+  // recent first), id as a deterministic tiebreak.
+  //
+  // FLAG (reviewer sign-off): the "awaiting approval" filter is on
+  // artifact_record.status = 'in_review' (the artifact's own human-gate
+  // lifecycle state), NOT on recommendation.status. A recommendation can be
+  // 'proposed'/'accepted'/etc. independent of whether its artifact is still
+  // awaiting human approval; the §7.2 "Pending Artifact" field is about the
+  // ARTIFACT's gate, so the artifact's status is the correct filter. Confirm
+  // this is the intended semantics.
+  const pendingArtifactRows = await db
+    .selectDistinct({
+      id: artifactRecord.id,
+      title: artifactRecord.title,
+      artifactType: artifactRecord.artifactType,
+      updatedAt: artifactRecord.updatedAt,
+    })
+    .from(enrollmentActionRecommendation)
+    .innerJoin(
+      artifactRecord,
+      eq(enrollmentActionRecommendation.artifactRecordId, artifactRecord.id),
+    )
+    .where(
+      and(
+        eq(enrollmentActionRecommendation.opportunityId, opportunity.id),
+        eq(enrollmentActionRecommendation.workspaceId, opportunity.workspaceId),
+        eq(artifactRecord.workspaceId, opportunity.workspaceId),
+        eq(artifactRecord.status, "in_review"),
+      ),
+    )
+    .orderBy(desc(artifactRecord.updatedAt), artifactRecord.id);
+
+  const firstPending = pendingArtifactRows[0];
+  const pendingArtifact = firstPending
+    ? {
+        id: firstPending.id,
+        title: firstPending.title,
+        artifactType: firstPending.artifactType,
+      }
+    : null;
+
   const now = new Date();
   const properties = enrollmentOpportunityToNotionProperties(opportunity, {
     workspaceId: opportunity.workspaceId,
     productId: opportunity.productId,
     syncStatus: "in_sync",
     lastSyncedAt: now,
+    openObjections,
+    pendingArtifact,
+    pendingArtifactCount: pendingArtifactRows.length,
   });
 
   let providerPageId: string;
