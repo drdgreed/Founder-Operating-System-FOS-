@@ -92,4 +92,29 @@ describe("artifactToFounderInboxProperties (issue #90, P1.5c)", () => {
     expect(chunks.every((c) => c.text.content.length <= 2000)).toBe(true);
     expect(chunks.map((c) => c.text.content).join("")).toBe(longTitle);
   });
+
+  it("FOS1-INBOX-07: an out-of-contract status throws (no silent 'Ready to execute' mislabel)", () => {
+    // Only in_review / ready_for_action are founder-action states; every other
+    // lifecycle value must fail loud, not fall through to a wrong Action Needed.
+    for (const status of ["draft", "approved", "rejected", "executed", "failed"] as const) {
+      expect(() => artifactToFounderInboxProperties(makeArtifact({ status }), ctx)).toThrow(
+        /not a founder-action state/,
+      );
+    }
+  });
+
+  it("FOS1-INBOX-08: title past Notion's 100-object array cap truncates to 100 with a marker", () => {
+    const huge = "y".repeat(2000 * 100 + 1); // 101 chunks pre-cap
+    const props = artifactToFounderInboxProperties(makeArtifact({ title: huge }), ctx) as {
+      Title: { rich_text: { text: { content: string } }[] };
+    };
+    const chunks = props.Title.rich_text;
+    expect(chunks).toHaveLength(100);
+    expect(chunks.every((c) => c.text.content.length <= 2000)).toBe(true);
+    expect(chunks[99]!.text.content.endsWith(" […truncated]")).toBe(true);
+  });
+
+  it("FOS1-INBOX-09: invalid updatedAt throws instead of emitting NaN", () => {
+    expect(() => artifactFosVersion(new Date("not-a-date"))).toThrow(/not a valid Date/);
+  });
 });

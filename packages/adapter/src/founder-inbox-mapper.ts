@@ -97,20 +97,48 @@ function dateProp(value: Date | null) {
  * no `version` column (its lifecycle is carried on artifact_version), so §C2
  * defines its projection version as epoch SECONDS of the record's `updated_at`
  * (`Math.floor(updatedAt.getTime() / 1000)`) — a monotonically non-decreasing,
- * bigint-safe integer that advances on every record write, exactly what the
- * projection's staleness check needs in place of a `.version`.
+ * bigint-safe integer in place of a `.version`.
+ *
+ * RESOLUTION IS ONE SECOND: two writes within the same wall-clock second
+ * collapse to the same version. Harmless today — no consumer reads it yet
+ * (`reconcile.ts` is wired only for EnrollmentOpportunity, not ArtifactRecord).
+ * The reconcile-extension slice that adds ArtifactRecord staleness checks MUST
+ * account for this (or move the epoch to milliseconds then). Throws on an
+ * invalid `updated_at` rather than emitting a NaN that would silently serialize
+ * to `{ number: null }` and clear the staleness key.
  */
 export function artifactFosVersion(updatedAt: Date): number {
-  return Math.floor(updatedAt.getTime() / 1000);
+  const epochSeconds = Math.floor(updatedAt.getTime() / 1000);
+  if (!Number.isFinite(epochSeconds)) {
+    throw new Error("artifactFosVersion: updatedAt is not a valid Date");
+  }
+  return epochSeconds;
 }
 
 /**
  * "Action Needed" — the derived founder cue for each projected state.
  * `in_review` (draft awaiting approval) -> "Review & approve";
  * `ready_for_action` (approved, awaiting execution) -> "Ready to execute".
+ *
+ * TOTAL over the founder-action states and FAILS LOUD otherwise: a status
+ * outside the two-state contract (e.g. `draft`/`rejected`/`executed`) must NOT
+ * silently fall through to a wrong cue like "Ready to execute" on a rejected
+ * artifact. This runs while building `properties`, BEFORE any Notion write, so
+ * the throw prevents a mislabeled page instead of writing one — the single
+ * choke point enforcing "callers filter to founder-action states first".
  */
-function actionNeeded(status: FounderActionStatus): string {
-  return status === "in_review" ? "Review & approve" : "Ready to execute";
+function actionNeeded(status: ArtifactRecordRow["status"]): string {
+  switch (status) {
+    case "in_review":
+      return "Review & approve";
+    case "ready_for_action":
+      return "Ready to execute";
+    default:
+      throw new Error(
+        `artifactToFounderInboxProperties: status "${status}" is not a founder-action state ` +
+          `(expected "in_review" | "ready_for_action") — callers must filter before projecting`,
+      );
+  }
 }
 
 /**
@@ -154,8 +182,8 @@ export function artifactToFounderInboxProperties(
     "Artifact Type": selectProp(artifact.artifactType),
     Status: selectProp(artifact.status),
     Domain: selectProp(artifact.domain),
-    // Derived founder cue for the two projected states.
-    "Action Needed": selectProp(actionNeeded(artifact.status as FounderActionStatus)),
+    // Derived founder cue; throws on an out-of-contract status (no silent mislabel).
+    "Action Needed": selectProp(actionNeeded(artifact.status)),
     // Canonical link (record id until the P1.9 dashboard ships deep links).
     "Canonical Link": richText(artifact.id),
   };

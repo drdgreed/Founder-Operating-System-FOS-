@@ -237,4 +237,30 @@ describe("projectFounderInboxItem (issue #90, P1.5c)", () => {
       await close();
     }
   });
+
+  it("FOS1-INBOX-DB-06: an out-of-contract artifact throws BEFORE any Notion write, leaving no page and no projection row", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      // `rejected` is a valid lifecycle status but NOT a founder-action state.
+      const artifact = await seedArtifact(db, { status: "rejected" });
+      const { client, calls } = makeMockNotion("notion-page-x");
+
+      await expect(
+        projectFounderInboxItem(db, client, { artifact, dataSourceId: "ds-1" }),
+      ).rejects.toThrow(/not a founder-action state/);
+
+      // The throw is raised while building properties, before createPage — so
+      // NO Notion call happened and NO projection row was written (no orphan).
+      expect(calls).toHaveLength(0);
+      const rows = await db
+        .select()
+        .from(projection)
+        .where(
+          and(eq(projection.entityType, "ArtifactRecord"), eq(projection.entityId, artifact.id)),
+        );
+      expect(rows).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
 });
