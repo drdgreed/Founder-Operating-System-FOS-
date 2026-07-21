@@ -139,6 +139,25 @@ describe("FOS1-NBA-GATE-cooldown", () => {
     );
     expect(result.allowed).toBe(true);
   });
+
+  it("FAIL-CLOSED: a malformed `now` BLOCKS the contact (does not silently allow via NaN)", async () => {
+    const result = await gate.evaluate(
+      ctx(
+        { now: "not-a-real-date", cooldownUntil: "2026-01-05T00:00:00.000Z" },
+        { isContact: true },
+      ),
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/invalid time input/);
+  });
+
+  it("FAIL-CLOSED: a present-but-malformed `cooldownUntil` BLOCKS the contact", async () => {
+    const result = await gate.evaluate(
+      ctx({ now: "2026-01-10T00:00:00.000Z", cooldownUntil: "garbage" }, { isContact: true }),
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/invalid time input/);
+  });
 });
 
 describe("FOS1-NBA-GATE-lifecycle-legal", () => {

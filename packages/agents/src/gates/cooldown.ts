@@ -39,7 +39,21 @@ export function cooldownGate<TInput, TOutput>(
         return { allowed: true };
       }
       const now = options.selectNow(ctx.input);
-      if (new Date(now).getTime() < new Date(cooldownUntil).getTime()) {
+      const nowMs = new Date(now).getTime();
+      const untilMs = new Date(cooldownUntil).getTime();
+      // Fail CLOSED on an unparseable/absent time (issue #76 3-layer gate,
+      // silent-failure finding): `NaN < x` is `false`, so a malformed `now` or
+      // `cooldownUntil` would skip the block and silently ALLOW a contact that
+      // may still be in cooldown — the dangerous direction for a contact-safety
+      // gate. This gate is the only enforcement layer; it must not assume a
+      // caller validated the time. An un-evaluable cooldown blocks the contact.
+      if (Number.isNaN(nowMs) || Number.isNaN(untilMs)) {
+        return {
+          allowed: false,
+          reason: `contact cooldown could not be evaluated — invalid time input (now: ${now}, cooldownUntil: ${cooldownUntil})`,
+        };
+      }
+      if (nowMs < untilMs) {
         return {
           allowed: false,
           reason: `contact cooldown active until ${cooldownUntil} (now: ${now})`,
