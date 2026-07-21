@@ -98,7 +98,15 @@ export async function transitionOpportunity(
 
     if (updated.length === 0) {
       // Concurrent writer won the race between our SELECT and this UPDATE.
-      throw new StaleVersionError(input.expectedVersion, current.version);
+      // Re-read to report the TRUE current version — `current.version` was
+      // asserted equal to `expectedVersion` above, so reporting it here would
+      // give a misleading "expected N, current N" (issue #58).
+      const [latest] = await tx
+        .select({ version: enrollmentOpportunity.version })
+        .from(enrollmentOpportunity)
+        .where(eq(enrollmentOpportunity.id, input.opportunityId))
+        .limit(1);
+      throw new StaleVersionError(input.expectedVersion, latest?.version ?? current.version);
     }
 
     const event = await writeEvent(tx, {

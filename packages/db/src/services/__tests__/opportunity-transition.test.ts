@@ -10,6 +10,32 @@ import {
 import { LEGAL_EDGES, ILLEGAL_EDGES } from "../opportunity-transitions.js";
 import { operationalEvent } from "../../schema/operational_event.js";
 import { enrollmentOpportunity } from "../../schema/enrollment_opportunity.js";
+import type { Db } from "../types.js";
+
+/**
+ * Simulates the UPDATE-loses-the-race half of issue #58: PGlite is
+ * single-connection, so two genuinely overlapping transactions can't be
+ * produced here. This forces the in-transaction SELECT to return a stale
+ * snapshot (as a losing concurrent transaction would have read) while the
+ * real UPDATE and the fix's re-read both hit the real, already-advanced row.
+ */
+function withForcedStaleSnapshot(db: Db, staleRow: typeof enrollmentOpportunity.$inferSelect): Db {
+  const wrapped = Object.create(db) as Db;
+  wrapped.transaction = ((cb: (tx: Db) => Promise<unknown>) =>
+    db.transaction.call(db, (tx: Db) => {
+      let selectCalls = 0;
+      const forcedTx = Object.create(tx) as Db;
+      forcedTx.select = ((...args: Parameters<Db["select"]>) => {
+        selectCalls += 1;
+        if (selectCalls === 1) {
+          return { from: () => ({ where: () => ({ limit: async () => [staleRow] }) }) };
+        }
+        return (tx.select as (...a: Parameters<Db["select"]>) => ReturnType<Db["select"]>)(...args);
+      }) as unknown as Db["select"];
+      return cb(forcedTx);
+    })) as Db["transaction"];
+  return wrapped;
+}
 
 describe("opportunity transition service (spec §12.1 — full transition matrix)", () => {
   let ctx: Awaited<ReturnType<typeof createTestDb>>;
@@ -150,5 +176,59 @@ describe("opportunity transition service (spec §12.1 — full transition matrix
         actor: { type: "founder", id: "founder-1" },
       }),
     ).rejects.toBeInstanceOf(StaleVersionError);
+  });
+
+  it("issue #58: a lost race reports the TRUE current version, not the stale expectedVersion", async () => {
+    const staleSnapshot = await seedOpportunity(ctx.db, {
+      workspaceId,
+      productId,
+      personId,
+      stage: "new_lead",
+    });
+
+    // Advance it for real, so the DB now holds version 2 / stage "reviewing" —
+    // what a losing concurrent transaction would NOT have seen.
+    await transitionOpportunity(ctx.db, {
+      opportunityId: staleSnapshot.id,
+      toStage: "reviewing",
+      expectedVersion: 1,
+      actor: { type: "founder", id: "founder-1" },
+    });
+
+    const raceDb = withForcedStaleSnapshot(ctx.db, staleSnapshot);
+
+    let caught: unknown;
+    try {
+      await transitionOpportunity(raceDb, {
+        opportunityId: staleSnapshot.id,
+        toStage: "disqualified",
+        expectedVersion: 1,
+        actor: { type: "founder", id: "founder-1" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(StaleVersionError);
+    const err = caught as StaleVersionError;
+    expect(err.expectedVersion).toBe(1);
+    // The bug reported `actualVersion: 1` here (the stale snapshot's version,
+    // which was asserted equal to expectedVersion one line earlier). The fix
+    // re-reads and reports the true current version: 2.
+    expect(err.actualVersion).toBe(2);
+
+    // No partial/duplicate effect: still at the real (reviewing, v2) state.
+    const [row] = await ctx.db
+      .select()
+      .from(enrollmentOpportunity)
+      .where(eq(enrollmentOpportunity.id, staleSnapshot.id));
+    expect(row!.stage).toBe("reviewing");
+    expect(row!.version).toBe(2);
+
+    const events = await ctx.db
+      .select()
+      .from(operationalEvent)
+      .where(eq(operationalEvent.entityId, staleSnapshot.id));
+    expect(events).toHaveLength(1); // only the real "reviewing" transition's event
   });
 });
