@@ -196,9 +196,9 @@ export const contiguousAssetOrderGate: Gate<BetaLaunchEditorialInput, BetaLaunch
   },
 };
 
-/** Returns the plan's assets sorted by their 1-based `order` (the `superRefine`
- * guarantees this is a total order). Used by every renderer/manifest so the
- * founder-facing surfaces always present the true launch sequence. */
+/** Returns the plan's assets sorted by their 1-based `order`. `contiguousAssetOrderGate`
+ * (stage 7) guarantees a total 1..N order before any renderer/manifest (stage 9/10)
+ * calls this, so the founder-facing surfaces always present the true launch sequence. */
 function orderedAssets(output: BetaLaunchEditorialOutput): PlannedAsset[] {
   return [...output.assets].sort((a, b) => a.order - b.order);
 }
@@ -268,9 +268,9 @@ export const fosBetaLaunchEditorialAgentDefinition: AgentDefinition<
     //   output.planSummary                       → (iv) SCANNED
     //   output.sequencingRationale               → (iv) SCANNED
     //   output.assets[].order                    → model NUMBER, not free text;
-    //                                              STRUCTURAL (int + 1..N
-    //                                              permutation superRefine) — no
-    //                                              prose can be smuggled in
+    //                                              STRUCTURAL (Zod int +
+    //                                              contiguousAssetOrderGate 1..N
+    //                                              permutation) — no prose smuggled in
     //   output.assets[].channel                  → (ii) closed enum
     //                                              CAMPAIGN_CHANNELS + (iii)
     //                                              channels-authorized gate
