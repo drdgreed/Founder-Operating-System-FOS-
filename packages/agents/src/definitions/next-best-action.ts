@@ -321,20 +321,38 @@ export const fosNextBestActionAgentDefinition: AgentDefinition<
     }),
     noProhibitedGuaranteeGate<NextBestActionInput, NextBestActionOutput>({
       key: "fos.next_best_action.no-prohibited-guarantee",
-      // Keep in sync with `buildBodyMarkdown` below — enumerated MECHANICALLY
-      // against every field it renders (issue #78 3-layer re-verify: this list
-      // being wrong is a recurring guarantee-leak class). Model-authored free
-      // text that reaches the founder-facing artifact: `summary`, `rationale`,
-      // `recommendedDueAt` (now `.datetime()`-constrained but scanned too), and
-      // `channel`. `channel` MUST be scanned: for a CONTACT action it is
-      // constrained to the consent allowlist, but for a NON-CONTACT action
-      // consent is exempt (returns undefined), so a garbage/guarantee `channel`
-      // would otherwise render unchecked. Every OTHER rendered field
-      // (`actionType`, `offer`, `businessImpact`, `urgency`, `confidence`,
-      // `impliedStage`) is a closed-set enum or a gate-validated identifier.
+      // Keep in sync with `buildBodyMarkdown` AND every founder-renderable
+      // persistence sink (the `EnrollmentActionRecommendation` domain record and
+      // the `claims_manifest_json`) — enumerated MECHANICALLY against every
+      // model-authored value that reaches a founder-facing surface (P-004 / issue
+      // #81: this list being wrong is a recurring guarantee-leak class, and the
+      // scan MUST cover persisted-and-dashboard-renderable fields, not only what
+      // `buildBodyMarkdown` renders today). Model-authored free text scanned
+      // here: `summary`, `rationale`, `recommendedDueAt` (now
+      // `.datetime()`-constrained but scanned too), `channel`, and
+      // `actionTarget`.
+      //   - `channel` MUST be scanned: for a CONTACT action it is constrained to
+      //     the consent allowlist, but for a NON-CONTACT action consent is exempt
+      //     (returns undefined), so a garbage/guarantee `channel` would otherwise
+      //     render unchecked.
+      //   - `actionTarget` MUST be scanned (issue #81): it is model-authored
+      //     free text (`z.string().min(1)`) that is NOT rendered by
+      //     `buildBodyMarkdown` today, but IS persisted into the
+      //     `claims_manifest_json` (see `buildClaimsManifest` below) — a
+      //     founder-renderable sink a future dashboard could surface raw. The
+      //     duplicate/conflict gates only MATCH it against caller-supplied
+      //     action keys; they never constrain it to a closed set, so a
+      //     guarantee smuggled into `actionTarget` is otherwise unchecked.
+      // Every OTHER model-authored field (`actionType`, `offer`,
+      // `businessImpact`, `urgency`, `confidence`, `impliedStage`) is a
+      // closed-set Zod enum (`actionType`/`impliedStage`/`businessImpact`/
+      // `urgency`/`confidence`) or a gate-validated identifier (`offer`, checked
+      // against `availableOffers` by `offerAvailableGate`, or the undetermined
+      // sentinel).
       selectText: (output) => [
         output.summary,
         output.rationale,
+        output.actionTarget,
         ...(output.recommendedDueAt ? [output.recommendedDueAt] : []),
         ...(output.channel ? [output.channel] : []),
       ],

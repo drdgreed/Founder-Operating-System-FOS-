@@ -485,6 +485,45 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
 
+  it("FOS1-NBA-18: prohibited-guarantee block via `actionTarget` — a guarantee smuggled into the model-authored, claims_manifest-persisted actionTarget is scanned → policy_blocked, ZERO recommendation rows, no artifact", async () => {
+    const fixture = await seedNextBestActionFixture(ctx.db);
+    await enableFlag(fixture.workspace.id);
+    // `actionTarget` is model-authored free text (`z.string().min(1)`) that is
+    // NOT rendered by buildBodyMarkdown but IS persisted into
+    // claims_manifest_json (a founder-renderable sink a future dashboard could
+    // surface raw) — issue #81. The duplicate/conflict gates only match it
+    // against caller-supplied keys, never a closed set, so the guarantee gate
+    // must scan it. The guarantee lives in `actionTarget`, not summary/rationale
+    // (which carry benign copy here so the block is attributable to actionTarget).
+    const modelClient = new FakeModelClient([
+      validResult(
+        buildOutput({
+          actionTarget: "we guarantee Ada a job offer within 30 days",
+        }),
+      ),
+    ]);
+    const runContext: RunAgentContext = {
+      workspaceId: fixture.workspace.id,
+      actor: ACTOR,
+      trigger: TRIGGER,
+    };
+
+    const result = await runAgent(
+      { db: ctx.db, modelClient },
+      fosNextBestActionAgentDefinition,
+      buildInput(fixture),
+      runContext,
+    );
+
+    expect(result.status).toBe("policy_blocked");
+    expect(result.artifact).toBeUndefined();
+    expect(
+      result.gateEvaluations?.some((g) => g.key.endsWith(".no-prohibited-guarantee") && !g.allowed),
+    ).toBe(true);
+    expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
+    expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
+  });
+
   it("FOS1-NBA-11: ATOMIC — a cross-workspace opportunity id is rejected; ZERO recommendation rows AND zero artifactRecord", async () => {
     const mine = await seedNextBestActionFixture(ctx.db);
     const theirs = await seedNextBestActionFixture(ctx.db);
