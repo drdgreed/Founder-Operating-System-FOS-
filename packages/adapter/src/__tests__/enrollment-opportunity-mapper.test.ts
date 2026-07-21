@@ -302,6 +302,22 @@ describe("enrollmentOpportunityToNotionProperties §7.2 fields (issue #86, P1.5a
     expect(properties.Summary).toEqual({ rich_text: [{ text: { content: exact } }] });
   });
 
+  it("FOS1-PRJ-06c: content past Notion's 100-object array cap truncates to 100 with a visible marker", () => {
+    // 200,001 chars -> 101 chunks pre-cap; Notion caps a rich_text array at 100
+    // objects, so the page write would 400. Must cap at 100 with a visible marker.
+    const huge = "c".repeat(2000 * 100 + 1);
+    const opp = makeOpportunity({ nextActionSummary: huge });
+
+    const properties = enrollmentOpportunityToNotionProperties(opp, CTX) as {
+      "Next Action": { rich_text: { text: { content: string } }[] };
+    };
+    const parts = properties["Next Action"].rich_text;
+
+    expect(parts).toHaveLength(100);
+    expect(parts.every((p) => p.text.content.length <= 2000)).toBe(true);
+    expect(parts[99]!.text.content.endsWith(" […truncated]")).toBe(true);
+  });
+
   it("FOS1-PRJ-07: empty-string currency projects as { select: null }, not an invalid empty-name select", () => {
     // Empty string satisfies the column's NOT NULL; Notion rejects a select
     // whose option name is empty, so it must clear the property instead.
@@ -341,7 +357,7 @@ describe("enrollmentOpportunityToNotionProperties §7.2 join-backed fields (issu
         {
           text: {
             content:
-              "[price/budget] The program is out of my current budget.\n[timing/schedule] I can't start until Q4.",
+              "[price/budget, high] The program is out of my current budget.\n[timing/schedule] I can't start until Q4.",
           },
         },
       ],

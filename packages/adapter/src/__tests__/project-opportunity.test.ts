@@ -6,6 +6,7 @@ import {
   objectionRecord,
   enrollmentActionRecommendation,
   artifactRecord,
+  enrollmentOpportunity,
 } from "@fos/db/schema";
 import { projectOpportunity } from "../project-opportunity.js";
 import { createTestDb, seedOpportunity } from "./test-db.js";
@@ -224,7 +225,7 @@ describe("projectOpportunity §7.2 join-backed fields (issue #88, P1.5b)", () =>
       const props = createdPageProperties(calls);
       expect(props["Open Objections"]).toEqual({ number: 1 });
       expect(props.Objections).toEqual({
-        rich_text: [{ text: { content: "[price/budget] Too expensive right now." } }],
+        rich_text: [{ text: { content: "[price/budget, high] Too expensive right now." } }],
       });
     } finally {
       await close();
@@ -352,6 +353,156 @@ describe("projectOpportunity §7.2 join-backed fields (issue #88, P1.5b)", () =>
       expect(props.Objections).toEqual({ rich_text: [] });
       expect(props["Pending Artifact"]).toEqual({ rich_text: [] });
       expect(props["Pending Artifact Link"]).toEqual({ rich_text: [] });
+    } finally {
+      await close();
+    }
+  });
+
+  it("FOS1-PRJ-DB-11: a DIFFERENT opportunity in the SAME workspace does not leak its objections or pending artifact", async () => {
+    // Proves the opportunity_id scope SEVERALLY: workspace is identical, so only
+    // the opportunity_id filter can exclude the sibling's rows. (FOS1-PRJ-DB-08/09
+    // seed the "other" data in a fresh workspace, so workspace_id alone excludes it
+    // and the opportunity_id filter is never actually exercised.)
+    const { db, close } = await createTestDb();
+    try {
+      const { workspace, product, person, opportunity } = await seedOpportunity(db);
+
+      // TARGET opp: one open objection + one in_review artifact via a recommendation.
+      await db.insert(objectionRecord).values({
+        workspaceId: workspace.id,
+        opportunityId: opportunity.id,
+        category: "budget",
+        classification: "price",
+        statement: "Target opp objection.",
+        resolutionStatus: "open",
+      });
+      const [targetArt] = await db
+        .insert(artifactRecord)
+        .values({
+          workspaceId: workspace.id,
+          artifactType: "objection_response",
+          domain: "enrollment",
+          title: "Target artifact",
+          status: "in_review",
+          updatedAt: new Date("2026-07-15T00:00:00Z"),
+        })
+        .returning();
+      await db.insert(enrollmentActionRecommendation).values({
+        workspaceId: workspace.id,
+        opportunityId: opportunity.id,
+        actionType: "send",
+        summary: "target rec",
+        artifactRecordId: targetArt!.id,
+        status: "proposed",
+      });
+
+      // SECOND opportunity in the SAME workspace, with its OWN open objection +
+      // a MORE-RECENT in_review artifact (would win most-recent if scope leaked).
+      const [otherOpp] = await db
+        .insert(enrollmentOpportunity)
+        .values({
+          workspaceId: workspace.id,
+          productId: product.id,
+          personId: person.id,
+          stage: "new_lead",
+          currency: "USD",
+          version: 1,
+        })
+        .returning();
+      await db.insert(objectionRecord).values({
+        workspaceId: workspace.id,
+        opportunityId: otherOpp!.id,
+        category: "authority",
+        classification: "decision",
+        statement: "Other opp objection — must NOT appear.",
+        resolutionStatus: "open",
+      });
+      const [otherArt] = await db
+        .insert(artifactRecord)
+        .values({
+          workspaceId: workspace.id,
+          artifactType: "no_show_recovery",
+          domain: "enrollment",
+          title: "Other artifact — must NOT appear",
+          status: "in_review",
+          updatedAt: new Date("2026-07-19T00:00:00Z"),
+        })
+        .returning();
+      await db.insert(enrollmentActionRecommendation).values({
+        workspaceId: workspace.id,
+        opportunityId: otherOpp!.id,
+        actionType: "send",
+        summary: "other rec",
+        artifactRecordId: otherArt!.id,
+        status: "proposed",
+      });
+
+      const { client, calls } = makeMockNotion("notion-page-iso");
+      await projectOpportunity(db, client, { opportunity, dataSourceId: "ds-1" });
+
+      const props = createdPageProperties(calls);
+      expect(props["Open Objections"]).toEqual({ number: 1 });
+      expect(props.Objections).toEqual({
+        rich_text: [{ text: { content: "[price/budget] Target opp objection." } }],
+      });
+      expect(props["Pending Artifact"]).toEqual({
+        rich_text: [{ text: { content: "Target artifact [objection_response]" } }],
+      });
+      expect(props["Pending Artifact Link"]).toEqual({
+        rich_text: [{ text: { content: targetArt!.id } }],
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it("FOS1-PRJ-DB-12: open objections render in deterministic created_at order", async () => {
+    const { db, close } = await createTestDb();
+    try {
+      const { workspace, opportunity } = await seedOpportunity(db);
+
+      // Inserted OUT of chronological order; the projection must render created_at asc.
+      await db.insert(objectionRecord).values([
+        {
+          workspaceId: workspace.id,
+          opportunityId: opportunity.id,
+          category: "c2",
+          classification: "second",
+          statement: "Second by time.",
+          resolutionStatus: "open",
+          createdAt: new Date("2026-07-12T00:00:00Z"),
+        },
+        {
+          workspaceId: workspace.id,
+          opportunityId: opportunity.id,
+          category: "c1",
+          classification: "first",
+          statement: "First by time.",
+          resolutionStatus: "open",
+          createdAt: new Date("2026-07-10T00:00:00Z"),
+        },
+        {
+          workspaceId: workspace.id,
+          opportunityId: opportunity.id,
+          category: "c3",
+          classification: "third",
+          statement: "Third by time.",
+          resolutionStatus: "open",
+          createdAt: new Date("2026-07-14T00:00:00Z"),
+        },
+      ]);
+
+      const { client, calls } = makeMockNotion("notion-page-ord");
+      await projectOpportunity(db, client, { opportunity, dataSourceId: "ds-1" });
+
+      const props = createdPageProperties(calls) as {
+        Objections: { rich_text: { text: { content: string } }[] };
+        "Open Objections": unknown;
+      };
+      expect(props["Open Objections"]).toEqual({ number: 3 });
+      expect(props.Objections.rich_text[0]!.text.content).toEqual(
+        "[first/c1] First by time.\n[second/c2] Second by time.\n[third/c3] Third by time.",
+      );
     } finally {
       await close();
     }

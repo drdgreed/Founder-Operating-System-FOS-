@@ -39,6 +39,10 @@ export interface EnrollmentOpportunityProjectionContext {
 
 /** Notion caps a single rich_text object's `content` at 2000 characters. */
 const NOTION_RICH_TEXT_MAX = 2000;
+/** Notion also caps a rich_text property's array at 100 objects. */
+const NOTION_RICH_TEXT_MAX_OBJECTS = 100;
+/** Visible marker appended when content is truncated at the 100-object cap. */
+const RICH_TEXT_TRUNCATION_MARKER = " […truncated]";
 
 /**
  * Notion rich_text property. `null` -> `{ rich_text: [] }`. A non-null string is
@@ -50,6 +54,11 @@ const NOTION_RICH_TEXT_MAX = 2000;
  * `validation_error`, silently dropping the whole projection. (Splitting on
  * UTF-16 code units can in theory divide a surrogate pair at a chunk boundary;
  * acceptable for the business prose these fields carry.)
+ *
+ * Notion ALSO caps a rich_text property's array at 100 objects — the "Objections"
+ * field concatenates an UNBOUNDED number of open objections, so a very large set
+ * could exceed 100 chunks and 400 the page write. Content beyond 100 objects is
+ * truncated with a VISIBLE marker (never a silent drop).
  */
 function richText(content: string | null) {
   if (content === null) return { rich_text: [] };
@@ -57,6 +66,16 @@ function richText(content: string | null) {
   const parts: { text: { content: string } }[] = [];
   for (let i = 0; i < content.length; i += NOTION_RICH_TEXT_MAX) {
     parts.push({ text: { content: content.slice(i, i + NOTION_RICH_TEXT_MAX) } });
+  }
+  if (parts.length > NOTION_RICH_TEXT_MAX_OBJECTS) {
+    const capped = parts.slice(0, NOTION_RICH_TEXT_MAX_OBJECTS);
+    const last = capped[capped.length - 1];
+    if (last) {
+      last.text.content =
+        last.text.content.slice(0, NOTION_RICH_TEXT_MAX - RICH_TEXT_TRUNCATION_MARKER.length) +
+        RICH_TEXT_TRUNCATION_MARKER;
+    }
+    return { rich_text: capped };
   }
   return { rich_text: parts };
 }
@@ -101,16 +120,25 @@ function majorUnitProp(cents: number | null) {
 
 /**
  * P1.5b: deterministic, human-readable summary of the open objections — one
- * line each, `"[<classification>/<category>] <statement>"`. Returns `null`
- * (-> empty rich_text) when there are none, so callers pass it straight to
- * `richText`, whose chunking already protects an over-long `statement`. Order
- * is the caller's (deterministic) query order — this helper does not sort.
+ * line each, `"[<classification>/<category>, <severity>] <statement>"` (the
+ * `, <severity>` segment is omitted when severity is null). Severity ranks a
+ * founder's urgency, so it IS rendered (not dropped). Returns `null` (-> empty
+ * rich_text) when there are none, so callers pass it straight to `richText`,
+ * whose chunking already protects an over-long `statement`. Order is the
+ * caller's (deterministic) query order — this helper does not sort.
  */
 function renderObjectionsSummary(
   objections: EnrollmentOpportunityProjectionContext["openObjections"],
 ): string | null {
   if (!objections || objections.length === 0) return null;
-  return objections.map((o) => `[${o.classification}/${o.category}] ${o.statement}`).join("\n");
+  return objections
+    .map((o) => {
+      const tag = o.severity
+        ? `${o.classification}/${o.category}, ${o.severity}`
+        : `${o.classification}/${o.category}`;
+      return `[${tag}] ${o.statement}`;
+    })
+    .join("\n");
 }
 
 /**
