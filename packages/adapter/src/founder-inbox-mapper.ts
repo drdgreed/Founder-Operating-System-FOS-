@@ -1,4 +1,5 @@
 import type { artifactRecord, projectionSyncStatusEnum } from "@fos/db/schema";
+import { richText, selectProp, numberProp, dateProp } from "./notion-write-properties.js";
 
 export type ArtifactRecordRow = typeof artifactRecord.$inferSelect;
 export type ProjectionSyncStatus = (typeof projectionSyncStatusEnum.enumValues)[number];
@@ -18,78 +19,6 @@ export interface FounderInboxProjectionContext {
   syncStatus: ProjectionSyncStatus;
   /** The instant this projection write is happening — not the entity's own timestamps. */
   lastSyncedAt: Date;
-}
-
-// --- Notion write-helpers (P1.5c) ---
-// TODO(DRY): extract shared Notion write-helpers into a shared module
-// (rule-of-three; also used by enrollment-opportunity-mapper.ts).
-// Duplicated verbatim here (not imported/extracted) to keep this slice's
-// changes isolated to NEW files — extracting would edit the already-tested
-// enrollment-opportunity-mapper.ts.
-
-/** Notion caps a single rich_text object's `content` at 2000 characters. */
-const NOTION_RICH_TEXT_MAX = 2000;
-/** Notion also caps a rich_text property's array at 100 objects. */
-const NOTION_RICH_TEXT_MAX_OBJECTS = 100;
-/** Visible marker appended when content is truncated at the 100-object cap. */
-const RICH_TEXT_TRUNCATION_MARKER = " […truncated]";
-
-/**
- * Notion rich_text property. `null` -> `{ rich_text: [] }`. A non-null string is
- * emitted as one text object, EXCEPT content longer than Notion's 2000-char
- * per-object cap, which is split into consecutive <=2000-char objects (Notion
- * concatenates them into one continuous value). Without the split, a single
- * over-long value would make the Notion API reject the ENTIRE page write with a
- * 400 `validation_error`, silently dropping the whole projection.
- *
- * Notion ALSO caps a rich_text property's array at 100 objects; content beyond
- * 100 objects is truncated with a VISIBLE marker (never a silent drop).
- */
-function richText(content: string | null) {
-  if (content === null) return { rich_text: [] };
-  if (content.length <= NOTION_RICH_TEXT_MAX) return { rich_text: [{ text: { content } }] };
-  const parts: { text: { content: string } }[] = [];
-  for (let i = 0; i < content.length; i += NOTION_RICH_TEXT_MAX) {
-    parts.push({ text: { content: content.slice(i, i + NOTION_RICH_TEXT_MAX) } });
-  }
-  if (parts.length > NOTION_RICH_TEXT_MAX_OBJECTS) {
-    const capped = parts.slice(0, NOTION_RICH_TEXT_MAX_OBJECTS);
-    const last = capped[capped.length - 1];
-    if (last) {
-      last.text.content =
-        last.text.content.slice(0, NOTION_RICH_TEXT_MAX - RICH_TEXT_TRUNCATION_MARKER.length) +
-        RICH_TEXT_TRUNCATION_MARKER;
-    }
-    return { rich_text: capped };
-  }
-  return { rich_text: parts };
-}
-
-/**
- * Notion `select` property from a value. `null` OR empty string ->
- * `{ select: null }` (property cleared). Notion rejects a select whose option
- * `name` is empty. (Enum-backed selects are guaranteed non-empty; the guard is
- * harmless there.)
- */
-function selectProp(name: string | null) {
-  return { select: name === null || name === "" ? null : { name } };
-}
-
-/**
- * Notion `number` property. `null` is a VALID value (`{ number: null }` clears
- * the property) — do NOT wrap it in an object. Keeps the mapper pure.
- */
-function numberProp(value: number | null) {
-  return { number: value };
-}
-
-/**
- * Notion `date` property. Per the Notion API, an unset date is `{ date: null }`
- * — NOT `{ date: { start: null } }`, which is rejected. A populated date is
- * serialized ISO-8601 (UTC) so the projection is deterministic from its input.
- */
-function dateProp(value: Date | null) {
-  return { date: value === null ? null : { start: value.toISOString() } };
 }
 
 /**

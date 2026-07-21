@@ -28,6 +28,15 @@ export {
   readSelectProperty,
 } from "./notion-properties.js";
 export {
+  richText,
+  selectProp,
+  numberProp,
+  dateProp,
+  NOTION_RICH_TEXT_MAX,
+  NOTION_RICH_TEXT_MAX_OBJECTS,
+  RICH_TEXT_TRUNCATION_MARKER,
+} from "./notion-write-properties.js";
+export {
   artifactToFounderInboxProperties,
   artifactFosVersion,
   founderInboxProjectionPolicy,
