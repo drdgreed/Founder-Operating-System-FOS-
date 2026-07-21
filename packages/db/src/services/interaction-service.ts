@@ -139,9 +139,8 @@ export async function updateInteractionStatus(
       // Concurrent writer won the race between our SELECT and this UPDATE.
       // Re-read to report the TRUE current version — `current.version` was
       // asserted equal to `expectedVersion` above, so reporting it here would
-      // give a misleading "expected N, current N". (The sibling
-      // opportunity-transition-service has the same latent issue; tracked to
-      // align repo-wide — see follow-up issue.)
+      // give a misleading "expected N, current N" (mirrored in
+      // opportunity-transition-service — issue #58).
       const [latest] = await tx
         .select({ version: interaction.version })
         .from(interaction)
