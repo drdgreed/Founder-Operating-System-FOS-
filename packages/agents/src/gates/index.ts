@@ -13,3 +13,4 @@ export * from "./no-duplicate-task.js";
 export * from "./no-scheduled-activity-conflict.js";
 export * from "./not-terminal-status.js";
 export * from "./offer-available.js";
+export * from "./claims-in-approved-set.js";

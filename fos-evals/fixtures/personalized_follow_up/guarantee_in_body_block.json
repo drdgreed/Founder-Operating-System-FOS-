@@ -1,0 +1,46 @@
+{
+  "fixture_id": "personalized_follow_up.guarantee_in_body_block",
+  "agent_key": "fos.personalized_follow_up",
+  "description": "An objection-response follow-up whose body smuggles a prohibited employment/offer guarantee. The mechanical no-prohibited-guarantee scan (which covers EVERY rendered field: subject, body, primaryCTA, each claim, each capability, each personalization statement, each risk flag) blocks it. Highest-stakes case: this is applicant-facing content.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000831",
+      "stage": "contacted",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000832",
+      "firstName": "Ada",
+      "lastName": "Lovelace"
+    },
+    "followUpType": "objection_response",
+    "channel": "email",
+    "consentedChannels": ["email"],
+    "approvedClaims": ["Our program includes weekly live coaching sessions."],
+    "capabilities": ["Weekly live coaching"],
+    "availableCTAs": ["Book a 15-minute call"],
+    "evidenceRecords": [
+      {
+        "sourceRef": "interaction.objection",
+        "sourceType": "interaction_note",
+        "content": "Applicant is worried the program will not lead to a better job."
+      }
+    ]
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "artifact": null,
+    "gate_outcomes": {
+      "fos.personalized_follow_up.mode-allowed": "pass",
+      "fos.personalized_follow_up.consent": "pass",
+      "fos.personalized_follow_up.cta-available": "pass",
+      "fos.personalized_follow_up.claims-in-approved-set": "pass",
+      "fos.personalized_follow_up.facts-resolve-to-sources": "pass",
+      "fos.personalized_follow_up.no-prohibited-guarantee": "block"
+    },
+    "output_schema_constraints": [
+      "the draft body contains a guarantee like 'We guarantee you a job offer within 30 days'",
+      "run is policy_blocked at no-prohibited-guarantee; zero artifact rows; nothing is sent"
+    ]
+  }
+}

@@ -11,8 +11,13 @@ export interface RecommendedPathwayAvailableGateOptions<TInput, TOutput> {
    * caller-provided/known pathway set. */
   selectAvailablePathways: (input: TInput) => ReadonlyArray<string>;
   /** Sentinel value the model may emit when it has insufficient information
-   * to recommend a pathway — allowed unconditionally, never fabricated. */
-  undeterminedValue?: string;
+   * to recommend a pathway — allowed unconditionally, never fabricated.
+   * Omitted → defaults to `"undetermined"`. Pass `null` to DISABLE the
+   * sentinel entirely (no escape hatch — every value must be in the available
+   * set): for a REQUIRED-value reuse like the follow-up CTA gate, where there
+   * is no legitimate "undetermined" and the model must not be able to bypass
+   * the set check by emitting the sentinel string (issue #82 3-layer gate). */
+  undeterminedValue?: string | null;
   /** Noun used in the block reason (e.g. "pathway", "offer"). Defaults to
    * "pathway" so existing callers are unaffected; `offerAvailableGate`
    * reuses this gate with `"offer"` rather than duplicating its logic. */
@@ -31,13 +36,17 @@ const DEFAULT_SUBJECT_LABEL = "pathway";
 export function recommendedPathwayAvailableGate<TInput, TOutput>(
   options: RecommendedPathwayAvailableGateOptions<TInput, TOutput>,
 ): Gate<TInput, TOutput> {
-  const undeterminedValue = options.undeterminedValue ?? DEFAULT_UNDETERMINED_VALUE;
+  // `undefined` (omitted) → default sentinel; explicit `null` → NO sentinel.
+  const undeterminedValue =
+    options.undeterminedValue === undefined
+      ? DEFAULT_UNDETERMINED_VALUE
+      : options.undeterminedValue;
   const subjectLabel = options.subjectLabel ?? DEFAULT_SUBJECT_LABEL;
   return {
     key: options.key,
     evaluate(ctx: GateContext<TInput, TOutput>): GateResult {
       const recommended = options.selectRecommendedPathway(ctx.output);
-      if (recommended === undeterminedValue) {
+      if (undeterminedValue !== null && recommended === undeterminedValue) {
         return { allowed: true };
       }
       const available = options.selectAvailablePathways(ctx.input);

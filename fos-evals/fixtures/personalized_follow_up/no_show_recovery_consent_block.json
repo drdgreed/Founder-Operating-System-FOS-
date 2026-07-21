@@ -1,0 +1,42 @@
+{
+  "fixture_id": "personalized_follow_up.no_show_recovery_consent_block",
+  "agent_key": "fos.personalized_follow_up",
+  "description": "A no-show recovery drafted for SMS, but only email consent is on record. Option-B (fail-closed) consent BLOCKS the draft — a non-consented channel never proceeds, and no artifact is created.",
+  "input": {
+    "opportunity": {
+      "id": "00000000-0000-0000-0000-000000000811",
+      "stage": "conversation_scheduled",
+      "targetRole": "Data Analyst"
+    },
+    "person": {
+      "id": "00000000-0000-0000-0000-000000000812",
+      "firstName": "Priya",
+      "lastName": "Nair"
+    },
+    "followUpType": "no_show_recovery",
+    "channel": "sms",
+    "consentedChannels": ["email"],
+    "approvedClaims": ["Our program includes weekly live coaching sessions."],
+    "capabilities": ["Weekly live coaching"],
+    "availableCTAs": ["Reschedule your call"],
+    "evidenceRecords": [
+      {
+        "sourceRef": "interaction.no_show",
+        "sourceType": "interaction_note",
+        "content": "Applicant did not attend the scheduled discovery call."
+      }
+    ]
+  },
+  "expected": {
+    "status": "policy_blocked",
+    "artifact": null,
+    "gate_outcomes": {
+      "fos.personalized_follow_up.mode-allowed": "pass",
+      "fos.personalized_follow_up.consent": "block"
+    },
+    "output_schema_constraints": [
+      "run is policy_blocked at consent with reason matching 'no recorded consent'",
+      "zero artifact rows are written"
+    ]
+  }
+}
