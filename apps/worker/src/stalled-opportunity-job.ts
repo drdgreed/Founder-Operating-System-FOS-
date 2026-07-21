@@ -111,8 +111,14 @@ export interface RunStalledOpportunityJobParams {
 /** Per-opportunity outcome of the agent invocation. */
 export interface StalledOpportunityRunOutcome {
   opportunityId: string;
-  runId: string;
-  status: RunAgentResult["status"];
+  /** Present when the agent ran; absent if the per-opportunity attempt threw. */
+  runId?: string;
+  /** The agent run status, or `"job_error"` if the per-opportunity attempt
+   * threw before/around the agent (model/DB error, missing person, ownership
+   * failure) — recorded rather than aborting the batch (issue #84 review). */
+  status: RunAgentResult["status"] | "job_error";
+  /** Set only when `status === "job_error"`: the failure message. */
+  error?: string;
 }
 
 export interface RunStalledOpportunityJobResult {
@@ -202,10 +208,13 @@ async function isStalled(
 /**
  * Assembles the least-privilege `fos.next_best_action` input from the
  * opportunity's canonical context + caller config. `existingOpenActions` and
- * `scheduledActivities` are empty by construction: `isStalled` already excludes
+ * `scheduledActivities` are empty BY CONSTRUCTION: `isStalled` already excludes
  * any opportunity with an open recommendation or a scheduled future interaction,
- * so the agent's own duplicate/conflict gates have nothing left to find here
- * (they remain the belt-and-suspenders enforcement layer).
+ * so a detected opp provably has none. NOTE (issue #84 review): because these
+ * are always empty here, the agent's own duplicate/conflict gates are a no-op
+ * on this path — they are NOT a second idempotency layer. The SOLE idempotency
+ * guard is `isStalled` condition (c) (the open-recommendation exclusion); it is
+ * correct, but do not rely on a nonexistent belt-and-suspenders backup.
  */
 function buildNextBestActionInput(
   opp: OpportunityRow,
@@ -269,34 +278,48 @@ export async function runStalledOpportunityJob(
     if (!(await isStalled(deps.db, opp, nowMs, params.config))) continue;
     stalledOpportunityIds.push(opp.id);
 
-    // Person is loaded workspace-scoped too (defense in depth): the FK
-    // guarantees existence, but the extra workspace filter refuses to read a
-    // person outside this tenant even under a corrupted FK.
-    const [personRow] = await deps.db
-      .select()
-      .from(person)
-      .where(and(eq(person.id, opp.personId), eq(person.workspaceId, params.workspaceId)))
-      .limit(1);
-    if (!personRow) {
-      throw new Error(
-        `runStalledOpportunityJob: person ${opp.personId} for opportunity ${opp.id} not found in workspace ${params.workspaceId}`,
+    // Per-opportunity error isolation (issue #84 3-layer gate): one stalled
+    // opportunity that throws — a transient model/DB error, a missing person,
+    // an ownership failure — must NOT abort the batch and starve every LATER
+    // stalled opportunity (which, given the deterministic order + isStalled
+    // check, a persistently-failing opp would otherwise do on every re-run).
+    // Record the failure in `runs` for the scheduler/operator and continue.
+    try {
+      // Person is loaded workspace-scoped too (defense in depth): the FK
+      // guarantees existence, but the extra workspace filter refuses to read a
+      // person outside this tenant even under a corrupted FK.
+      const [personRow] = await deps.db
+        .select()
+        .from(person)
+        .where(and(eq(person.id, opp.personId), eq(person.workspaceId, params.workspaceId)))
+        .limit(1);
+      if (!personRow) {
+        throw new Error(
+          `runStalledOpportunityJob: person ${opp.personId} for opportunity ${opp.id} not found in workspace ${params.workspaceId}`,
+        );
+      }
+
+      const runContext: RunAgentContext = {
+        workspaceId: params.workspaceId,
+        productId: opp.productId,
+        actor: WORKER_ACTOR,
+        trigger: WORKER_TRIGGER,
+      };
+
+      const result = await runAgent(
+        deps,
+        fosNextBestActionAgentDefinition,
+        buildNextBestActionInput(opp, personRow, params),
+        runContext,
       );
+      runs.push({ opportunityId: opp.id, runId: result.runId, status: result.status });
+    } catch (err) {
+      runs.push({
+        opportunityId: opp.id,
+        status: "job_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-
-    const runContext: RunAgentContext = {
-      workspaceId: params.workspaceId,
-      productId: opp.productId,
-      actor: WORKER_ACTOR,
-      trigger: WORKER_TRIGGER,
-    };
-
-    const result = await runAgent(
-      deps,
-      fosNextBestActionAgentDefinition,
-      buildNextBestActionInput(opp, personRow, params),
-      runContext,
-    );
-    runs.push({ opportunityId: opp.id, runId: result.runId, status: result.status });
   }
 
   return {

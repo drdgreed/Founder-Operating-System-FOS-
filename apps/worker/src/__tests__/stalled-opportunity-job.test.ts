@@ -333,4 +333,39 @@ describe("runStalledOpportunityJob (issue #84) — detect stalled opps + invoke 
     expect(versions[0]?.approvalStatus).toBe("draft");
     expect(await ctx.db.select().from(approval)).toHaveLength(0);
   });
+
+  it("FOS1-STALLED-poison-isolation: one opportunity whose agent run THROWS does NOT abort the batch — a later stalled opp is still processed (issue #84 review)", async () => {
+    // Two stalled opps in the SAME workspace. The model client's FIRST call
+    // throws; the whole job must NOT abort — the other stalled opp still gets
+    // its recommendation, and the failing opp is recorded as `job_error`. Pre-
+    // fix, the throw propagated and starved every later stalled opportunity.
+    const fx = await seedStalledFixture(ctx.db);
+    await seedStalledFixture(ctx.db, { existingWorkspace: fx.workspace });
+    await enableNba(fx.workspace.id);
+    const modelClient = new FakeModelClient([
+      () => {
+        throw new Error("simulated model failure");
+      },
+      validResult(buildNbaOutput()),
+    ]);
+
+    const result = await runStalledOpportunityJob(
+      { db: ctx.db, modelClient },
+      { workspaceId: fx.workspace.id, now: NOW, config: buildConfig() },
+    );
+
+    // The job completed (did not propagate the throw) and evaluated BOTH opps.
+    expect(result.stalledOpportunityIds).toHaveLength(2);
+    expect(result.runs).toHaveLength(2);
+    const errored = result.runs.filter((r) => r.status === "job_error");
+    const succeeded = result.runs.filter((r) => r.status === "succeeded");
+    expect(errored).toHaveLength(1);
+    expect(errored[0]?.error).toMatch(/simulated model failure/);
+    expect(succeeded).toHaveLength(1);
+
+    // Exactly ONE recommendation was written — for the opp that did NOT throw;
+    // the failing opp starved nothing.
+    const recs = await ctx.db.select().from(enrollmentActionRecommendation);
+    expect(recs).toHaveLength(1);
+  });
 });
