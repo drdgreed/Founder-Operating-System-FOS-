@@ -14,3 +14,6 @@ export * from "./no-scheduled-activity-conflict.js";
 export * from "./not-terminal-status.js";
 export * from "./offer-available.js";
 export * from "./claims-in-approved-set.js";
+// Option C slice 1 (issue #106): semantic guarantee classifier. Standalone —
+// exported for import, NOT registered into any pipeline/gate list (that is slice 2).
+export * from "./guarantee-classifier.js";
