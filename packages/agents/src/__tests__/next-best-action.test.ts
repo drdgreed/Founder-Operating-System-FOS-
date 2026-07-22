@@ -19,7 +19,7 @@ import {
   type NextBestActionOutput,
 } from "../definitions/next-best-action.js";
 import { createTestDb, seedNextBestActionFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_NEXT_BEST_ACTION_AGENT_KEY };
 const TRIGGER = { type: "cron", source: "stalled-opportunity-workflow" };
@@ -127,7 +127,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -173,7 +173,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, { consentedChannels: ["email"] }),
       runContext,
@@ -202,7 +202,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     // BLOCK the contact, never silently allow it (the headline property of
     // the option-B founder decision).
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, { consentedChannels: [] }),
       runContext,
@@ -229,7 +229,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         now: "2026-01-01T00:00:00.000Z",
@@ -267,7 +267,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -295,7 +295,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         existingOpenActions: [{ type: "send_follow_up_email", target: "person-target-1" }],
@@ -331,7 +331,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         scheduledActivities: [{ type: "internal_task", target: "person-target-1" }],
@@ -367,7 +367,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         opportunity: { ...buildInput(fixture).opportunity, stage: "enrolled" },
@@ -400,7 +400,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, { availableOffers: ["cohort-2026-a"] }),
       runContext,
@@ -432,7 +432,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -440,9 +440,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith(".no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
@@ -470,7 +468,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -478,9 +476,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith(".no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
@@ -509,7 +505,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -517,9 +513,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith(".no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(enrollmentActionRecommendation)).toHaveLength(0);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
@@ -538,7 +532,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosNextBestActionAgentDefinition,
         buildInput(theirs),
         runContext,
@@ -578,7 +572,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -621,7 +615,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         consentedChannels: [],
@@ -659,7 +653,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -688,7 +682,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, { consentedChannels: ["email"] }),
       runContext,
@@ -718,7 +712,7 @@ describe("fos.next_best_action (issue #78) — 8-gated recommendation, atomic si
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosNextBestActionAgentDefinition,
       buildInput(fixture, {
         consentedChannels: ["email"],

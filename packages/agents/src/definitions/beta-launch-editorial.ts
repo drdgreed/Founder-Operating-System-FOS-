@@ -3,7 +3,6 @@ import type { ArtifactType } from "@fos/db/schema";
 import { claimsInApprovedSetGate } from "../gates/claims-in-approved-set.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
 import type { Gate } from "../gates/gate.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import type { AgentDefinition } from "../types.js";
 
 /**
@@ -256,7 +255,7 @@ export const fosBetaLaunchEditorialAgentDefinition: AgentDefinition<
     //   (i)   input-derived (not model output)
     //   (ii)  a closed Zod enum
     //   (iii) gate-validated against a set (an earlier-ordered gate above)
-    //   (iv)  SCANNED by selectText below
+    //   (iv)  SCANNED by complianceReviewText below
     // Re-run this enumeration on ANY change to the output schema,
     // `buildBodyMarkdown`, `buildClaimsManifest`, OR a gate's coverage. A
     // model-authored rendered/persisted value that is none of (i)-(iv) is a
@@ -282,15 +281,16 @@ export const fosBetaLaunchEditorialAgentDefinition: AgentDefinition<
     // assetTypes) + counts — no NEW model free-text sink beyond what is
     // already scanned above.
     // ============================================================
-    noProhibitedGuaranteeGate<BetaLaunchEditorialInput, BetaLaunchEditorialOutput>({
-      key: "fos.beta_launch_editorial.no-prohibited-guarantee",
-      selectText: (output) => [
-        output.planSummary,
-        output.sequencingRationale,
-        ...output.assets.map((a) => a.title),
-        ...output.assets.map((a) => a.purpose),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. Same
+  // fields the old gate's `selectText` scanned (see the mechanical enumeration
+  // above) — keep in sync with `buildBodyMarkdown`.
+  complianceReviewText: (output) => [
+    output.planSummary,
+    output.sequencingRationale,
+    ...output.assets.map((a) => a.title),
+    ...output.assets.map((a) => a.purpose),
   ],
   artifact: {
     // FLAG (§7.1 gap): no dedicated asset-plan artifact type; `internal_note`

@@ -12,7 +12,7 @@ import {
   type SubstackCornerstoneOutput,
 } from "../definitions/substack-cornerstone.js";
 import { createTestDb, seedWorkspace, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_SUBSTACK_CORNERSTONE_AGENT_KEY };
 const TRIGGER = { type: "webhook", source: "campaign-cornerstone-requested" };
@@ -142,7 +142,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       runContext,
@@ -216,18 +216,14 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
       await seedFlag(ctx, workspace.id, "review");
       const modelClient = new FakeModelClient([validResult(buildOutput(override))]);
       const result = await runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosSubstackCornerstoneAgentDefinition,
         buildInput(),
         { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
       );
       expect(result.status).toBe("policy_blocked");
       expect(result.artifact).toBeUndefined();
-      expect(
-        result.gateEvaluations?.some(
-          (g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed,
-        ),
-      ).toBe(true);
+      expect(result.complianceReview?.blocked).toBe(true);
       expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
     },
   );
@@ -244,7 +240,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -275,7 +271,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -288,7 +284,11 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
     ).toBe(true);
     // An INFERENCE row with no source is exempt (control): it must NOT block.
     const control = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(buildOutput())]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(buildOutput())]),
+      },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -310,7 +310,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -327,7 +327,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
     await seedFlag(ctx, workspace.id, "review");
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -354,7 +354,7 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
     await seedFlag(ctx, workspace.id, "shadow");
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -381,14 +381,22 @@ describe("fos.substack_cornerstone (issue #104) — the Substack Cornerstone Age
     const scriptedOutput = buildOutput();
 
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosSubstackCornerstoneAgentDefinition,
       buildInput(),
       runContext,
     );
 
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosSubstackCornerstoneAgentDefinition,
       buildInput({
         sourceBrief: {

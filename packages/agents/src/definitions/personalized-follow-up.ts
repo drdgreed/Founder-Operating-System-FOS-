@@ -7,7 +7,6 @@ import { claimsInApprovedSetGate } from "../gates/claims-in-approved-set.js";
 import { consentGate } from "../gates/consent.js";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { recommendedPathwayAvailableGate } from "../gates/recommended-pathway-available.js";
 import type { AgentDefinition } from "../types.js";
 
@@ -64,13 +63,14 @@ async function loadOwnedOpportunity(db: Db, opportunityId: string, workspaceId: 
  *    auto-decision row is written, and nothing external is called.
  *
  * 2. NO GUARANTEE IN THE APPLICANT-FACING DRAFT (AGENT_LESSONS P-004,
- *    MECHANICAL). `noProhibitedGuaranteeGate.selectText` is enumerated
- *    MECHANICALLY against EVERY field `buildBodyMarkdown` renders. See the
- *    exhaustive field classification immediately above the gate below; every
- *    rendered value is classified as exactly one of (i) input-derived, (ii) a
- *    closed Zod enum, (iii) gate-validated against a set, or (iv) scanned by
- *    `selectText`. A `guarantee-in-<field>` test exists per scanned field
- *    (body, subject, primaryCTA, a claim, a capability, a risk flag).
+ *    MECHANICAL). The stage-7b `complianceReviewText` selector (issue #109,
+ *    which replaced the keyword guarantee gate) is enumerated MECHANICALLY
+ *    against EVERY field `buildBodyMarkdown` renders. See the exhaustive field
+ *    classification immediately above the selector below; every rendered value
+ *    is classified as exactly one of (i) input-derived, (ii) a closed Zod enum,
+ *    (iii) gate-validated against a set, or (iv) scanned by the compliance
+ *    review. A `guarantee-in-<field>` test exists per scanned field (body,
+ *    subject, primaryCTA, a claim, a capability, a risk flag).
  *
  * 3. CONSENT (option B) + CLAIMS discipline. The draft's `channel` must be in
  *    the caller-supplied `consentedChannels` ALLOWLIST (reuse the allowlist
@@ -296,7 +296,7 @@ export const fosPersonalizedFollowUpAgentDefinition: AgentDefinition<
     //   (i)   input-derived (not model output)
     //   (ii)  a closed Zod enum
     //   (iii) gate-validated against a set (an earlier-ordered gate above)
-    //   (iv)  SCANNED by selectText below
+    //   (iv)  SCANNED by complianceReviewText below
     // Re-run this enumeration on ANY change to `buildBodyMarkdown`, the output
     // schema, OR a gate's coverage (a fix counts). A model-authored rendered
     // value that is none of (i)-(iv) is a guarantee leak.
@@ -319,18 +319,19 @@ export const fosPersonalizedFollowUpAgentDefinition: AgentDefinition<
     //                                     call-preparation's observedFacts.sourceRef)
     //   output.riskFlags[each]          → (iv) SCANNED
     // ============================================================
-    noProhibitedGuaranteeGate<PersonalizedFollowUpInput, PersonalizedFollowUpOutput>({
-      key: "fos.personalized_follow_up.no-prohibited-guarantee",
-      selectText: (output) => [
-        ...(output.subject ? [output.subject] : []),
-        output.body,
-        output.primaryCTA,
-        ...output.claimsManifest,
-        ...output.capabilitiesManifest,
-        ...output.personalizationSources.map((p) => p.statement),
-        ...output.riskFlags,
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. Same
+  // fields the old gate's `selectText` scanned (see the mechanical enumeration
+  // above) — keep in sync with `buildBodyMarkdown`.
+  complianceReviewText: (output) => [
+    ...(output.subject ? [output.subject] : []),
+    output.body,
+    output.primaryCTA,
+    ...output.claimsManifest,
+    ...output.capabilitiesManifest,
+    ...output.personalizationSources.map((p) => p.statement),
+    ...output.riskFlags,
   ],
   artifact: {
     // `followUpType` DRIVES the artifact type 1:1 (all six values are already

@@ -30,10 +30,36 @@ export interface RunAgentContext {
  * a real Anthropic call. `notionClient` is optional — only definitions that
  * declare a `projection` hook need it.
  */
+/** The verdict shape the stage-7b semantic compliance reviewer returns. Mirrors
+ * `GuaranteeDecision` from the guarantee classifier so the default reviewer
+ * (which wraps `evaluateGuaranteeText`) satisfies it structurally. */
+export interface ComplianceReviewDecision {
+  verdict: "allow" | "block";
+  reason: string;
+}
+
+/**
+ * The stage-7b semantic compliance reviewer (Option C slice 2, issue #109): an
+ * async classifier over ONE free-text field of the validated model output. The
+ * pipeline DEFAULTS this to the eval-validated two-tier guarantee classifier
+ * (`evaluateGuaranteeText`) wired to `deps.modelClient`; it is an INJECTABLE
+ * dependency so tests can stub the compliance decision WITHOUT scripting
+ * classifier calls through the generation `FakeModelClient` (the two model
+ * seams stay decoupled).
+ */
+export type ComplianceReviewer = (text: string) => Promise<ComplianceReviewDecision>;
+
 export interface RunAgentDeps {
   db: Db;
   modelClient: ModelClient;
   notionClient?: NotionClient;
+  /**
+   * Optional injectable semantic compliance reviewer (stage 7b). Omitted in
+   * production, where the pipeline defaults to the two-tier guarantee
+   * classifier over `modelClient`. Injected by hermetic tests so the
+   * compliance mock is decoupled from the generation model mock.
+   */
+  complianceReviewer?: ComplianceReviewer;
 }
 
 export interface ArtifactSpec<TInput, TOutput> {
@@ -108,6 +134,18 @@ export interface AgentDefinition<TInput, TOutput> {
    * feature-flag's configured mode (see mode.ts effectiveMode). */
   autonomyCeiling: FeatureMode;
   deterministicGates: ReadonlyArray<Gate<TInput, TOutput>>;
+  /**
+   * Optional stage-7b semantic compliance-review selector (Option C slice 2,
+   * issue #109). Returns the model FREE-TEXT fields of the validated output the
+   * semantic guarantee classifier must scan — the SAME role the removed keyword
+   * gate's `selectText` played, but enforced by the eval-validated two-tier
+   * classifier (which reads MEANING) in a SEPARATE async pipeline stage rather
+   * than a pure/sync deterministic gate. Omitted by definitions with no
+   * founder-facing free text to review (e.g. the `fos.smoke` stub), which skip
+   * the stage cleanly. Select ONLY Zod-validated output fields (never raw
+   * prompt/input), exactly like a gate (D9).
+   */
+  complianceReviewText?: (output: TOutput) => ReadonlyArray<string>;
   evalPolicy?: EvalPolicy<TInput, TOutput>;
   /** `feature_flag.key` this definition reads at stage 2. */
   featureFlagKey: string;

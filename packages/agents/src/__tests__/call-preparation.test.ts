@@ -19,7 +19,7 @@ import {
   type CallPreparationOutput,
 } from "../definitions/call-preparation.js";
 import { createTestDb, seedCallPreparationFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_CALL_PREPARATION_AGENT_KEY };
 const TRIGGER = { type: "cron", source: "conversation-workflow" };
@@ -83,10 +83,9 @@ function buildOutput(overrides: Partial<CallPreparationOutput> = {}): CallPrepar
     topQuestions: ["How many hours per week can you commit to coursework?"],
     likelyObjections: ["May be concerned about balancing this with her current job."],
     permittedClaims: ["Our program includes weekly live coaching sessions."],
-    // Deliberately phrased WITHOUT a guarantee-verb + prohibited-subject
-    // pair, so the fixture default itself doesn't trip the
-    // no-prohibited-guarantee gate the way a real smuggled claim would (see
-    // FOS1-CALLPREP-03, which tests that case explicitly).
+    // Deliberately phrased WITHOUT a guarantee, so the fixture default itself
+    // doesn't trip the stage-7b compliance review the way a real smuggled claim
+    // would (see FOS1-CALLPREP-03, which tests that case explicitly).
     claimsToAvoid: ["Specific earnings or placement-timeline figures should not be cited."],
     observedFacts: [
       {
@@ -134,7 +133,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosCallPreparationAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -184,7 +183,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosCallPreparationAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -223,7 +222,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosCallPreparationAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -231,9 +230,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
 
@@ -274,7 +271,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosCallPreparationAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -312,7 +309,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosCallPreparationAgentDefinition,
         buildInput(theirs),
         runContext,
@@ -358,7 +355,12 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     });
 
     await expect(
-      runAgent({ db: ctx.db, modelClient }, fosCallPreparationAgentDefinition, input, runContext),
+      runAgent(
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
+        fosCallPreparationAgentDefinition,
+        input,
+        runContext,
+      ),
     ).rejects.toThrow(/interaction .* is not in workspace/);
 
     // No orphaned artifact: persistDomain's throw must roll back the
@@ -397,7 +399,12 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     });
 
     await expect(
-      runAgent({ db: ctx.db, modelClient }, fosCallPreparationAgentDefinition, input, runContext),
+      runAgent(
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
+        fosCallPreparationAgentDefinition,
+        input,
+        runContext,
+      ),
     ).rejects.toThrow(/does not belong to opportunity/);
 
     // No orphaned artifact: persistDomain's throw must roll back the
@@ -433,7 +440,11 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
       ],
     });
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosCallPreparationAgentDefinition,
       controlInput,
       runContext,
@@ -453,7 +464,11 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
       ],
     });
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosCallPreparationAgentDefinition,
       injectedInput,
       runContext,
@@ -497,7 +512,7 @@ describe("fos.call_preparation (issue #60) — read-context to artifact only, no
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosCallPreparationAgentDefinition,
       buildInput(fixture),
       runContext,

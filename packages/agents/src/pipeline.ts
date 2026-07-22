@@ -5,6 +5,7 @@ import { createArtifact, transitionArtifactVersionStatus, writeEvent } from "@fo
 import { assembleContext } from "./context.js";
 import type { GateEvaluation } from "./gates/gate.js";
 import { evaluateGates } from "./gates/gate.js";
+import { evaluateGuaranteeText } from "./gates/guarantee-classifier.js";
 import { effectiveMode, type FeatureMode } from "./mode.js";
 import { DEFAULT_MODEL, type ModelUsage } from "./model-client.js";
 import { buildPrompt, buildRepairPrompt } from "./prompt.js";
@@ -20,6 +21,11 @@ export interface RunAgentResult {
   retryCount: number;
   artifact?: { artifactId: string; versionId: string };
   gateEvaluations?: GateEvaluation[];
+  /** Set when the stage-7b semantic compliance review ran. `blocked: true`
+   * means the run was terminated `policy_blocked` by the guarantee classifier
+   * (no artifact) — the same terminal outcome as a deterministic gate block,
+   * but produced by the separate semantic stage rather than a gate. */
+  complianceReview?: { blocked: boolean; reason?: string };
   reason?: string;
   /** True when the run succeeded (canonical committed) but the isolated
    * stage-11 projection (a non-canonical Notion write) failed and was
@@ -292,6 +298,93 @@ export async function runAgent<TInput, TOutput>(
         gateEvaluations: gateOutcome.evaluations,
         reason: gateOutcome.blockedBy?.reason,
       };
+    }
+
+    // ---- Stage 7b: semantic compliance review (async) — Option C slice 2,
+    // issue #109 --------------------------------------------------------
+    // The deterministic gates (stage 7) stay PURE/SYNC and enforce STRUCTURALLY
+    // (ADR-07 D7 preserved — untouched). This SEPARATE stage adds the
+    // eval-validated two-tier guarantee classifier (SET1+SET2 100% recall) as a
+    // SEMANTIC layer that reads MEANING — the "same word flips by meaning"
+    // boundary a regex floor cannot see ("interview-ready" ALLOW vs. "get you
+    // an interview" BLOCK). It runs AFTER the gates return `allowed` and BEFORE
+    // any artifact is created (stage 9), so a compliance block yields NO
+    // canonical artifact — the SAME terminal outcome as a gate block. It runs
+    // in the SAME modes the gates run (shadow + review + live — no mode guard),
+    // so shadow-mode validation exercises the classifier before any live use.
+    //
+    // FAIL-CLOSED (defense in depth): `evaluateGuaranteeText` already blocks on
+    // any thrown error / timeout / schema-invalid / low-confidence result. This
+    // stage additionally wraps the whole review in try/catch so ANY unexpected
+    // throw (a buggy injected reviewer, a thrown default) BLOCKS the run rather
+    // than letting an exception bypass the review.
+    //
+    // The reviewer is an INJECTABLE pipeline dep (`deps.complianceReviewer`),
+    // DEFAULTING to the classifier wired to `deps.modelClient` — tests stub it
+    // WITHOUT scripting classifier calls through the generation FakeModelClient.
+    if (definition.complianceReviewText) {
+      const reviewer =
+        deps.complianceReviewer ??
+        ((text: string) => evaluateGuaranteeText(text, { model: deps.modelClient }));
+
+      let complianceBlockReason: string | null = null;
+      try {
+        for (const text of definition.complianceReviewText(output)) {
+          const decision = await reviewer(text);
+          if (decision.verdict === "block") {
+            complianceBlockReason = decision.reason;
+            break;
+          }
+        }
+      } catch (err) {
+        // Fail closed: an exception in the review must never bypass it.
+        const message = err instanceof Error ? err.message : String(err);
+        complianceBlockReason = `compliance-review fail-closed (unexpected error): ${message}`;
+      }
+
+      if (complianceBlockReason !== null) {
+        await deps.db
+          .update(agentRun)
+          .set({
+            status: "policy_blocked",
+            retryCount,
+            latencyMs,
+            costJson: usage,
+            deterministicEvalJson: {
+              evaluations: gateOutcome.evaluations,
+              complianceReview: { blocked: true, reason: complianceBlockReason },
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(agentRun.id, runId));
+
+        await writeEvent(deps.db, {
+          workspaceId: runContext.workspaceId,
+          productId: runContext.productId ?? null,
+          entityType: "AgentRun",
+          entityId: runId,
+          source: "agent-runtime",
+          correlationId,
+          causationId,
+          actor: runContext.actor,
+          type: "agent_run.policy_blocked",
+          payload: {
+            agentKey: definition.key,
+            agentVersion: definition.version,
+            blockedBy: { stage: "compliance_review", reason: complianceBlockReason },
+          },
+        });
+
+        return {
+          runId,
+          status: "policy_blocked",
+          mode,
+          retryCount,
+          gateEvaluations: gateOutcome.evaluations,
+          complianceReview: { blocked: true, reason: complianceBlockReason },
+          reason: complianceBlockReason,
+        };
+      }
     }
 
     // ---- Stage 8: optional secondary quality eval (advisory only) -----

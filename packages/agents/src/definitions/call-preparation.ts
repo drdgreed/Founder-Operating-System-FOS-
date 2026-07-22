@@ -5,7 +5,6 @@ import { getInteractionById } from "@fos/db/services";
 import type { Db } from "@fos/db/services";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import type { AgentDefinition } from "../types.js";
 
 /**
@@ -67,10 +66,10 @@ async function loadOwnedOpportunity(db: Db, opportunityId: string, workspaceId: 
  * — not live registry lookups.
  *
  * FLAG (issue #60): no dedicated claims-approved gate exists in this slice.
- * The full "claims approved for this channel and offer" gate is P1.8;
- * `noProhibitedGuaranteeGate` is the safety net for `permittedClaims` here —
- * it cannot verify a claim is *approved*, only that it does not smuggle a
- * prohibited employment/salary/interview guarantee.
+ * The full "claims approved for this channel and offer" gate is P1.8; the
+ * stage-7b semantic compliance review (issue #109) is the safety net for
+ * `permittedClaims` here — it cannot verify a claim is *approved*, only that it
+ * does not smuggle a prohibited employment/salary/interview guarantee.
  */
 
 // ---- Input (stage 1/3): least-privilege context the agent reasons over ---
@@ -157,9 +156,9 @@ export const callPreparationOutputSchema = z.object({
   topQuestions: z.array(z.string()),
   likelyObjections: z.array(z.string()),
   /** Claims the founder is permitted to reference on this call, drawn from
-   * `availableClaims`. The critical field for the no-prohibited-guarantee
-   * gate: a prohibited guarantee smuggled in here (rather than a narrative
-   * field) must still be blocked — see the gate's `selectText` below. */
+   * `availableClaims`. The critical field for the semantic compliance review:
+   * a prohibited guarantee smuggled in here (rather than a narrative field)
+   * must still be blocked — see `complianceReviewText` below. */
   permittedClaims: z.array(z.string()),
   claimsToAvoid: z.array(z.string()),
   /** D4: every entry MUST carry a sourceRef — an inference can never be
@@ -219,28 +218,26 @@ export const fosCallPreparationAgentDefinition: AgentDefinition<
     // no-prohibited-guarantee gate is the safety net for `permittedClaims`
     // in this slice; it cannot verify a claim is *approved*, only that it
     // carries no prohibited guarantee.
-    noProhibitedGuaranteeGate<CallPreparationInput, CallPreparationOutput>({
-      key: "fos.call_preparation.no-prohibited-guarantee",
-      // The gate must scan EVERY field that `buildBodyMarkdown` renders into
-      // the canonical founder-facing brief (mirrors the enrollment-brief
-      // issue-#53 security fix exactly): a prohibited guarantee otherwise
-      // reaches canonical state via any free-text field the gate never sees.
-      // `permittedClaims` is the critical one — a prohibited guarantee
-      // smuggled into a "permitted" claim must still be blocked. Keep this
-      // list in sync with `buildBodyMarkdown` below.
-      selectText: (output) => [
-        output.meetingObjective,
-        output.summary,
-        output.recommendedClose,
-        ...output.criticalUnknowns,
-        ...output.topQuestions,
-        ...output.likelyObjections,
-        ...output.permittedClaims,
-        ...output.claimsToAvoid,
-        ...output.observedFacts.map((f) => f.statement),
-        ...output.inferences.map((i) => i.statement),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. It
+  // must scan EVERY field that `buildBodyMarkdown` renders into the canonical
+  // founder-facing brief (mirrors the enrollment-brief issue-#53 security fix):
+  // a prohibited guarantee otherwise reaches canonical state via any free-text
+  // field. `permittedClaims` is the critical one — a prohibited guarantee
+  // smuggled into a "permitted" claim must still be blocked. Same fields the
+  // old gate's `selectText` scanned — keep in sync with `buildBodyMarkdown`.
+  complianceReviewText: (output) => [
+    output.meetingObjective,
+    output.summary,
+    output.recommendedClose,
+    ...output.criticalUnknowns,
+    ...output.topQuestions,
+    ...output.likelyObjections,
+    ...output.permittedClaims,
+    ...output.claimsToAvoid,
+    ...output.observedFacts.map((f) => f.statement),
+    ...output.inferences.map((i) => i.statement),
   ],
   artifact: {
     artifactType: "call_preparation_brief",

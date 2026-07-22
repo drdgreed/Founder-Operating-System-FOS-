@@ -20,7 +20,7 @@ import {
   type ObjectionIntelligenceOutput,
 } from "../definitions/objection-intelligence.js";
 import { createTestDb, seedObjectionIntelligenceFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_OBJECTION_INTELLIGENCE_AGENT_KEY };
 const TRIGGER = { type: "cron", source: "conversation-workflow" };
@@ -130,7 +130,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -197,7 +197,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -245,7 +245,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -292,7 +292,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -334,7 +334,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -342,9 +342,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(objectionRecord)).toHaveLength(0);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
@@ -359,7 +357,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     });
     // The guarantee is in `sourceRef`, NOT `statement`, on an INFERRED
     // objection. observedObjectionHasSourceGate exempts inferred objections,
-    // so ONLY the noProhibitedGuaranteeGate scanning sourceRef can catch this.
+    // so ONLY the stage-7b compliance review scanning sourceRef can catch this.
     // Before the PR #74 fix (selectText omitted sourceRef) this run SUCCEEDED
     // and the guarantee reached the canonical artifact.
     const modelClient = new FakeModelClient([
@@ -385,7 +383,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -393,9 +391,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(objectionRecord)).toHaveLength(0);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
@@ -436,7 +432,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosObjectionIntelligenceAgentDefinition,
         buildInput(theirs),
         runContext,
@@ -484,7 +480,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosObjectionIntelligenceAgentDefinition,
         input,
         runContext,
@@ -528,7 +524,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosObjectionIntelligenceAgentDefinition,
         input,
         runContext,
@@ -572,7 +568,11 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
       ],
     });
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosObjectionIntelligenceAgentDefinition,
       controlInput,
       runContext,
@@ -602,7 +602,11 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
       ],
     });
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosObjectionIntelligenceAgentDefinition,
       injectedInput,
       runContext,
@@ -660,7 +664,7 @@ describe("fos.objection_intelligence (issue #73) — untrusted transcript in, at
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosObjectionIntelligenceAgentDefinition,
       buildInput(fixture),
       runContext,

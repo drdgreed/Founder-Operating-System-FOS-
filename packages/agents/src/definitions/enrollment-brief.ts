@@ -6,7 +6,6 @@ import type { Db } from "@fos/db/services";
 import { projectOpportunity } from "@fos/adapter";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { recommendedPathwayAvailableGate } from "../gates/recommended-pathway-available.js";
 import type { AgentDefinition } from "../types.js";
 
@@ -194,31 +193,30 @@ export const fosEnrollmentBriefAgentDefinition: AgentDefinition<
       selectObservedFacts: (output) => output.observedFacts,
       selectValidSourceRefs: (input) => input.evidenceRecords.map((r) => r.sourceRef),
     }),
-    noProhibitedGuaranteeGate<EnrollmentBriefInput, EnrollmentBriefOutput>({
-      key: "fos.enrollment_brief.no-prohibited-guarantee",
-      // The gate must scan EVERY field that `buildBodyMarkdown` renders into
-      // the canonical founder-facing brief (issue #53 security review): a
-      // prohibited guarantee otherwise reaches canonical state via an
-      // observedFact/inference/riskFlag/unknown statement, which the gate never
-      // sees. Keep this list in sync with `buildBodyMarkdown` below.
-      selectText: (output) => [
-        output.candidateSummary,
-        output.fitRationale,
-        output.nextAction,
-        ...output.objections,
-        ...output.discoveryQuestions,
-        ...output.observedFacts.map((f) => f.statement),
-        ...output.inferences.map((i) => i.statement),
-        ...output.riskFlags,
-        ...output.unknowns,
-      ],
-    }),
     recommendedPathwayAvailableGate<EnrollmentBriefInput, EnrollmentBriefOutput>({
       key: "fos.enrollment_brief.recommended-pathway-available",
       selectRecommendedPathway: (output) => output.recommendedPathway,
       selectAvailablePathways: (input) => input.availablePathways,
       undeterminedValue: ENROLLMENT_BRIEF_UNDETERMINED_PATHWAY,
     }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. It
+  // must scan EVERY field that `buildBodyMarkdown` renders into the canonical
+  // founder-facing brief (issue #53 security review): a prohibited guarantee
+  // otherwise reaches canonical state via an observedFact/inference/riskFlag/
+  // unknown statement. Same fields the old gate's `selectText` scanned — keep
+  // this list in sync with `buildBodyMarkdown` below.
+  complianceReviewText: (output) => [
+    output.candidateSummary,
+    output.fitRationale,
+    output.nextAction,
+    ...output.objections,
+    ...output.discoveryQuestions,
+    ...output.observedFacts.map((f) => f.statement),
+    ...output.inferences.map((i) => i.statement),
+    ...output.riskFlags,
+    ...output.unknowns,
   ],
   artifact: {
     // FLAG: spec §7.1 names a dedicated `enrollment_brief` artifact_type, but

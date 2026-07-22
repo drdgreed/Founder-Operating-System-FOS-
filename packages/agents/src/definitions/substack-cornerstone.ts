@@ -2,7 +2,6 @@ import { z } from "zod";
 import { claimsInApprovedSetGate } from "../gates/claims-in-approved-set.js";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import type { AgentDefinition } from "../types.js";
 // REUSE the editorial agent's CLOSED channel enum (P1.7a, spec §8.7): the
 // cornerstone's promotion snippets go out on the SAME five launch channels, so
@@ -271,7 +270,7 @@ export const fosSubstackCornerstoneAgentDefinition: AgentDefinition<
     //   (i)   input-derived (not model output)
     //   (ii)  a closed Zod enum
     //   (iii) gate-validated against a set (an earlier-ordered gate above)
-    //   (iv)  SCANNED by selectText below
+    //   (iv)  SCANNED by complianceReviewText below
     // Re-run this enumeration on ANY change to the output schema,
     // `buildBodyMarkdown`, `buildClaimsManifest`, OR a gate's coverage. A
     // model-authored rendered/persisted value that is none of (i)-(iv) is a
@@ -311,21 +310,22 @@ export const fosSubstackCornerstoneAgentDefinition: AgentDefinition<
     // the cited fact sourceRefs (iii/iv per above), and counts — no NEW model
     // free-text sink beyond what is already scanned above.
     // ============================================================
-    noProhibitedGuaranteeGate<SubstackCornerstoneInput, SubstackCornerstoneOutput>({
-      key: "fos.substack_cornerstone.no-prohibited-guarantee",
-      selectText: (output) => [
-        output.thesis,
-        ...output.researchQuestions,
-        ...output.evidenceMatrix.map((r) => r.claim),
-        // Inference-row refs are not gate-validated — scan every row's ref.
-        ...output.evidenceMatrix.map((r) => r.sourceRef ?? ""),
-        ...output.counterarguments,
-        ...output.outline,
-        output.fullDraft,
-        output.summary,
-        ...output.promotionAssets.map((a) => a.text),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. Same
+  // fields the old gate's `selectText` scanned (see the mechanical enumeration
+  // above) — keep in sync with `buildBodyMarkdown`.
+  complianceReviewText: (output) => [
+    output.thesis,
+    ...output.researchQuestions,
+    ...output.evidenceMatrix.map((r) => r.claim),
+    // Inference-row refs are not gate-validated — scan every row's ref.
+    ...output.evidenceMatrix.map((r) => r.sourceRef ?? ""),
+    ...output.counterarguments,
+    ...output.outline,
+    output.fullDraft,
+    output.summary,
+    ...output.promotionAssets.map((a) => a.text),
   ],
   artifact: {
     // The cornerstone IS a Substack paper — `substack_paper` is the canonical,

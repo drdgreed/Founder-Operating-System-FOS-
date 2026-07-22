@@ -12,7 +12,6 @@ import { cooldownGate } from "../gates/cooldown.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
 import { lifecycleLegalGate } from "../gates/lifecycle-legal.js";
 import { noDuplicateTaskGate, type ActionKey } from "../gates/no-duplicate-task.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { noScheduledActivityConflictGate } from "../gates/no-scheduled-activity-conflict.js";
 import { notTerminalStatusGate } from "../gates/not-terminal-status.js";
 import { offerAvailableGate } from "../gates/offer-available.js";
@@ -78,9 +77,10 @@ async function loadOwnedOpportunity(db: Db, opportunityId: string, workspaceId: 
  * 3. ALL EIGHT GUARDRAILS BLOCK CORRECTLY: `featureModeAllowedGate` (mode)
  *    plus the seven #77 gates (consent, cooldown, lifecycle-legal,
  *    no-duplicate-task, no-scheduled-activity-conflict, not-terminal-status,
- *    offer-available) plus `noProhibitedGuaranteeGate` — any one of the
- *    latter eight blocking must leave ZERO recommendation rows and no
- *    artifact (see the `FOS1-NBA-0x` per-gate tests below).
+ *    offer-available) plus the stage-7b semantic compliance review (issue
+ *    #109, which replaced the keyword guarantee gate) — any one of the latter
+ *    eight blocking must leave ZERO recommendation rows and no artifact (see
+ *    the `FOS1-NBA-0x` per-gate tests below).
  *
  * FLAG (issue #78, mirrors #60/#68/#73 precedent): NO seeded consent,
  * cooldown, offer, or action-type-by-stage registry exists yet.
@@ -319,44 +319,40 @@ export const fosNextBestActionAgentDefinition: AgentDefinition<
       selectAvailableOffers: (input) => input.availableOffers,
       undeterminedValue: NBA_UNDETERMINED_OFFER,
     }),
-    noProhibitedGuaranteeGate<NextBestActionInput, NextBestActionOutput>({
-      key: "fos.next_best_action.no-prohibited-guarantee",
-      // Keep in sync with `buildBodyMarkdown` AND every founder-renderable
-      // persistence sink (the `EnrollmentActionRecommendation` domain record and
-      // the `claims_manifest_json`) — enumerated MECHANICALLY against every
-      // model-authored value that reaches a founder-facing surface (P-004 / issue
-      // #81: this list being wrong is a recurring guarantee-leak class, and the
-      // scan MUST cover persisted-and-dashboard-renderable fields, not only what
-      // `buildBodyMarkdown` renders today). Model-authored free text scanned
-      // here: `summary`, `rationale`, `recommendedDueAt` (now
-      // `.datetime()`-constrained but scanned too), `channel`, and
-      // `actionTarget`.
-      //   - `channel` MUST be scanned: for a CONTACT action it is constrained to
-      //     the consent allowlist, but for a NON-CONTACT action consent is exempt
-      //     (returns undefined), so a garbage/guarantee `channel` would otherwise
-      //     render unchecked.
-      //   - `actionTarget` MUST be scanned (issue #81): it is model-authored
-      //     free text (`z.string().min(1)`) that is NOT rendered by
-      //     `buildBodyMarkdown` today, but IS persisted into the
-      //     `claims_manifest_json` (see `buildClaimsManifest` below) — a
-      //     founder-renderable sink a future dashboard could surface raw. The
-      //     duplicate/conflict gates only MATCH it against caller-supplied
-      //     action keys; they never constrain it to a closed set, so a
-      //     guarantee smuggled into `actionTarget` is otherwise unchecked.
-      // Every OTHER model-authored field (`actionType`, `offer`,
-      // `businessImpact`, `urgency`, `confidence`, `impliedStage`) is a
-      // closed-set Zod enum (`actionType`/`impliedStage`/`businessImpact`/
-      // `urgency`/`confidence`) or a gate-validated identifier (`offer`, checked
-      // against `availableOffers` by `offerAvailableGate`, or the undetermined
-      // sentinel).
-      selectText: (output) => [
-        output.summary,
-        output.rationale,
-        output.actionTarget,
-        ...(output.recommendedDueAt ? [output.recommendedDueAt] : []),
-        ...(output.channel ? [output.channel] : []),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. Keep
+  // in sync with `buildBodyMarkdown` AND every founder-renderable persistence
+  // sink (the `EnrollmentActionRecommendation` domain record and the
+  // `claims_manifest_json`) — enumerated MECHANICALLY against every
+  // model-authored value that reaches a founder-facing surface (P-004 / issue
+  // #81: this list being wrong is a recurring guarantee-leak class, and the scan
+  // MUST cover persisted-and-dashboard-renderable fields, not only what
+  // `buildBodyMarkdown` renders today). Model-authored free text scanned here:
+  // `summary`, `rationale`, `recommendedDueAt` (now `.datetime()`-constrained
+  // but scanned too), `channel`, and `actionTarget`.
+  //   - `channel` MUST be scanned: for a CONTACT action it is constrained to
+  //     the consent allowlist, but for a NON-CONTACT action consent is exempt
+  //     (returns undefined), so a garbage/guarantee `channel` would otherwise
+  //     render unchecked.
+  //   - `actionTarget` MUST be scanned (issue #81): it is model-authored free
+  //     text (`z.string().min(1)`) that is NOT rendered by `buildBodyMarkdown`
+  //     today, but IS persisted into the `claims_manifest_json` (see
+  //     `buildClaimsManifest` below) — a founder-renderable sink a future
+  //     dashboard could surface raw. The duplicate/conflict gates only MATCH it
+  //     against caller-supplied action keys; they never constrain it to a closed
+  //     set, so a guarantee smuggled into `actionTarget` is otherwise unchecked.
+  // Every OTHER model-authored field (`actionType`, `offer`, `businessImpact`,
+  // `urgency`, `confidence`, `impliedStage`) is a closed-set Zod enum or a
+  // gate-validated identifier (`offer`, checked against `availableOffers` by
+  // `offerAvailableGate`, or the undetermined sentinel). Same fields the old
+  // gate's `selectText` scanned.
+  complianceReviewText: (output) => [
+    output.summary,
+    output.rationale,
+    output.actionTarget,
+    ...(output.recommendedDueAt ? [output.recommendedDueAt] : []),
+    ...(output.channel ? [output.channel] : []),
   ],
   artifact: {
     // FLAG: spec §7.1 has no dedicated Next-Best-Action artifact type — see

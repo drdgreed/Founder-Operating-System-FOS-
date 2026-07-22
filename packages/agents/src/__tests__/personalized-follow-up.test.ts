@@ -19,12 +19,12 @@ import {
   type PersonalizedFollowUpOutput,
 } from "../definitions/personalized-follow-up.js";
 import { createTestDb, seedPersonalizedFollowUpFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_PERSONALIZED_FOLLOW_UP_AGENT_KEY };
 const TRIGGER = { type: "cron", source: "conversation-workflow" };
 
-// A prohibited employment/offer guarantee — trips noProhibitedGuaranteeGate.
+// A prohibited employment/offer guarantee — blocked by the stage-7b compliance review.
 const GUARANTEE = "We guarantee you a job offer within 30 days of enrolling.";
 
 type Fixture = Awaited<ReturnType<typeof seedPersonalizedFollowUpFixture>>;
@@ -125,7 +125,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -162,7 +162,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -196,7 +196,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture, { followUpType: "no_show_recovery" }),
       reviewRun(fixture),
@@ -219,16 +219,14 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
   ) {
     const modelClient = new FakeModelClient([validResult(output)]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       input,
       reviewRun(fixture),
     );
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith(".no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   }
 
@@ -296,7 +294,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture, { channel: "sms", consentedChannels: ["email"] }),
       reviewRun(fixture),
@@ -314,7 +312,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture, { channel: "email", consentedChannels: [] }),
       reviewRun(fixture),
@@ -336,7 +334,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     ]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -358,7 +356,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     ]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -384,7 +382,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     ]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -412,7 +410,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     ]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -447,7 +445,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosPersonalizedFollowUpAgentDefinition,
         buildInput(theirs),
         reviewRun(mine),
@@ -471,7 +469,7 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPersonalizedFollowUpAgentDefinition,
       buildInput(fixture),
       reviewRun(fixture),
@@ -506,7 +504,11 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
       ],
     });
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosPersonalizedFollowUpAgentDefinition,
       controlInput,
       runContext,
@@ -526,7 +528,11 @@ describe("fos.personalized_follow_up (issue #82) — external-facing DRAFT, no a
       ],
     });
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosPersonalizedFollowUpAgentDefinition,
       injectedInput,
       runContext,

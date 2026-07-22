@@ -5,7 +5,6 @@ import { getInteractionById, OPPORTUNITY_STAGES } from "@fos/db/services";
 import type { Db } from "@fos/db/services";
 import { factsResolveToSourcesGate } from "../gates/facts-resolve-to-sources.js";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { stageProposalLegalGate } from "../gates/stage-proposal-legal.js";
 import type { AgentDefinition } from "../types.js";
 
@@ -268,27 +267,26 @@ export const fosPostCallSynthesisAgentDefinition: AgentDefinition<
       selectProposedStage: (output) => output.stageProposal.proposedStage,
       noChangeValue: STAGE_PROPOSAL_NO_CHANGE,
     }),
-    noProhibitedGuaranteeGate<PostCallSynthesisInput, PostCallSynthesisOutput>({
-      key: "fos.post_call_synthesis.no-prohibited-guarantee",
-      // The gate must scan EVERY field `buildBodyMarkdown` renders into the
-      // canonical founder-facing recap (mirrors call-preparation's own
-      // issue-#53/#60 precedent): a prohibited guarantee otherwise reaches
-      // canonical state via any free-text field the gate never sees. Keep
-      // this list in sync with `buildBodyMarkdown` below.
-      selectText: (output) => [
-        ...output.confirmedGoals,
-        ...output.constraints,
-        ...output.objections,
-        ...output.commitments,
-        ...output.openQuestions,
-        output.fitUpdate.rationale,
-        output.stageProposal.rationale,
-        output.nextAction,
-        output.followUpBrief,
-        ...output.observedFacts.map((f) => f.statement),
-        ...output.inferences.map((i) => i.statement),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. It
+  // must scan EVERY field `buildBodyMarkdown` renders into the canonical
+  // founder-facing recap (mirrors call-preparation's issue-#53/#60 precedent):
+  // a prohibited guarantee otherwise reaches canonical state via any free-text
+  // field. Same fields the old gate's `selectText` scanned — keep in sync with
+  // `buildBodyMarkdown` below.
+  complianceReviewText: (output) => [
+    ...output.confirmedGoals,
+    ...output.constraints,
+    ...output.objections,
+    ...output.commitments,
+    ...output.openQuestions,
+    output.fitUpdate.rationale,
+    output.stageProposal.rationale,
+    output.nextAction,
+    output.followUpBrief,
+    ...output.observedFacts.map((f) => f.statement),
+    ...output.inferences.map((i) => i.statement),
   ],
   artifact: {
     // Already in the artifact_type enum (`artifact_record.ts`) — no

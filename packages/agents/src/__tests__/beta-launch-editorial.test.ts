@@ -12,7 +12,7 @@ import {
   type BetaLaunchEditorialOutput,
 } from "../definitions/beta-launch-editorial.js";
 import { createTestDb, seedWorkspace, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_BETA_LAUNCH_EDITORIAL_AGENT_KEY };
 const TRIGGER = { type: "webhook", source: "campaign-source-brief-approved" };
@@ -107,7 +107,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       runContext,
@@ -147,16 +147,14 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
     );
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
   });
 
@@ -172,7 +170,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -200,7 +198,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -228,7 +226,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
       ),
     ]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -257,7 +255,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
     ]);
     // Founder authorized only linkedin + email — a webinar asset must block.
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput({ authorizedChannels: ["linkedin", "email"] }),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -275,7 +273,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
     await seedFlag(ctx, workspace.id, "review");
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -308,7 +306,7 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
     await seedFlag(ctx, workspace.id, "shadow");
     const modelClient = new FakeModelClient([validResult(buildOutput())]);
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       { workspaceId: workspace.id, actor: ACTOR, trigger: TRIGGER },
@@ -419,14 +417,22 @@ describe("fos.beta_launch_editorial (issue #97) — the Beta Launch Editorial Ag
     const scriptedOutput = buildOutput();
 
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput(),
       runContext,
     );
 
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosBetaLaunchEditorialAgentDefinition,
       buildInput({
         sourceBrief: {

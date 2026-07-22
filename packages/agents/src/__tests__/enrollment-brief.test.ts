@@ -20,7 +20,7 @@ import {
   type EnrollmentBriefOutput,
 } from "../definitions/enrollment-brief.js";
 import { createTestDb, seedEnrollmentBriefFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_ENROLLMENT_BRIEF_AGENT_KEY };
 const TRIGGER = { type: "webhook", source: "application-intake" };
@@ -165,7 +165,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient, notionClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient, notionClient },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -227,7 +227,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -268,7 +268,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -276,9 +276,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
   });
 
   it("FOS1-BRIEF-04: inference-not-fact is STRUCTURAL — schema rejects a fact missing sourceRef and an inference-shaped entry in observedFacts", () => {
@@ -334,7 +332,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -376,7 +374,11 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
       ],
     });
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosEnrollmentBriefAgentDefinition,
       controlInput,
       runContext,
@@ -395,7 +397,11 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
       ],
     });
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosEnrollmentBriefAgentDefinition,
       injectedInput,
       runContext,
@@ -437,7 +443,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient, notionClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient, notionClient },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -478,7 +484,7 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     let thrown: unknown;
     try {
       await runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosEnrollmentBriefAgentDefinition,
         input,
         runContext,
@@ -535,7 +541,12 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient, notionClient: makeMockNotion("p").client },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient,
+        notionClient: makeMockNotion("p").client,
+      },
       fosEnrollmentBriefAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -566,7 +577,12 @@ describe("fos.enrollment_brief (issue #53) — the first real business agent", (
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient, notionClient: makeMockNotion("p").client },
+        {
+          db: ctx.db,
+          complianceReviewer: guaranteeKeywordReviewer,
+          modelClient,
+          notionClient: makeMockNotion("p").client,
+        },
         fosEnrollmentBriefAgentDefinition,
         buildInput(theirs),
         runContext,

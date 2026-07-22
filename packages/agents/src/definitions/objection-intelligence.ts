@@ -4,7 +4,6 @@ import { enrollmentOpportunity } from "@fos/db/schema";
 import { createObjection, getInteractionById } from "@fos/db/services";
 import type { Db } from "@fos/db/services";
 import { featureModeAllowedGate } from "../gates/feature-mode-allowed.js";
-import { noProhibitedGuaranteeGate } from "../gates/no-prohibited-guarantee.js";
 import { observedObjectionHasSourceGate } from "../gates/observed-objection-has-source.js";
 import type { AgentDefinition } from "../types.js";
 
@@ -239,30 +238,28 @@ export const fosObjectionIntelligenceAgentDefinition: AgentDefinition<
       selectValidSourceRefs: (input) => input.evidenceRecords.map((r) => r.sourceRef),
       observedValue: "observed",
     }),
-    noProhibitedGuaranteeGate<ObjectionIntelligenceInput, ObjectionIntelligenceOutput>({
-      key: "fos.objection_intelligence.no-prohibited-guarantee",
-      // The gate must scan EVERY field `buildBodyMarkdown` renders into the
-      // canonical founder-facing artifact (mirrors enrollment-brief's /
-      // post-call-synthesis's own issue-#53/#68 precedent): a prohibited
-      // guarantee otherwise reaches canonical state. `summary`, `category`,
-      // and `statement` are rendered free text. `sourceRef` is ALSO rendered
-      // by `renderObjectionLine`, and for an `inferred` objection it is
-      // UNVALIDATED model free text (the observed-source gate only checks
-      // observed objections) — so it must be scanned too, or a guarantee
-      // smuggled into an inferred objection's `sourceRef` reaches the
-      // artifact unblocked (PR #74 3-layer gate, correctness finding). For an
-      // observed objection `sourceRef` is a validated identifier that cannot
-      // match the guarantee heuristic, so scanning it is harmless. Keep this
-      // list in sync with `buildBodyMarkdown`.
-      selectText: (output) => [
-        output.summary,
-        ...output.objections.flatMap((o) => [
-          o.category,
-          o.statement,
-          ...(o.sourceRef ? [o.sourceRef] : []),
-        ]),
-      ],
-    }),
+  ],
+  // Stage-7b semantic compliance review (Option C slice 2, issue #109) — the
+  // eval-validated guarantee classifier replaces the removed keyword gate. It
+  // must scan EVERY field `buildBodyMarkdown` renders into the canonical
+  // founder-facing artifact (mirrors enrollment-brief's / post-call-synthesis's
+  // issue-#53/#68 precedent): a prohibited guarantee otherwise reaches
+  // canonical state. `summary`, `category`, and `statement` are rendered free
+  // text. `sourceRef` is ALSO rendered by `renderObjectionLine`, and for an
+  // `inferred` objection it is UNVALIDATED model free text (the observed-source
+  // gate only checks observed objections) — so it must be scanned too, or a
+  // guarantee smuggled into an inferred objection's `sourceRef` reaches the
+  // artifact unblocked (PR #74 correctness finding). For an observed objection
+  // `sourceRef` is a validated identifier that cannot match, so scanning it is
+  // harmless. Same fields the old gate's `selectText` scanned — keep in sync
+  // with `buildBodyMarkdown`.
+  complianceReviewText: (output) => [
+    output.summary,
+    ...output.objections.flatMap((o) => [
+      o.category,
+      o.statement,
+      ...(o.sourceRef ? [o.sourceRef] : []),
+    ]),
   ],
   artifact: {
     // FLAG: spec §7.1 has no dedicated objection-analysis artifact type —

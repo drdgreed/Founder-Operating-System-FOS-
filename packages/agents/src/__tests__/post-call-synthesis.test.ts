@@ -21,7 +21,7 @@ import {
   type PostCallSynthesisOutput,
 } from "../definitions/post-call-synthesis.js";
 import { createTestDb, seedPostCallSynthesisFixture, setFeatureFlag } from "./test-db.js";
-import { FakeModelClient, validResult } from "./fake-model-client.js";
+import { FakeModelClient, validResult, guaranteeKeywordReviewer } from "./fake-model-client.js";
 
 const ACTOR = { type: "agent" as const, id: FOS_POST_CALL_SYNTHESIS_AGENT_KEY };
 const TRIGGER = { type: "cron", source: "conversation-workflow" };
@@ -142,7 +142,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -196,7 +196,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -236,7 +236,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -244,9 +244,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
 
     expect(result.status).toBe("policy_blocked");
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.gateEvaluations?.some((g) => g.key.endsWith("no-prohibited-guarantee") && !g.allowed),
-    ).toBe(true);
+    expect(result.complianceReview?.blocked).toBe(true);
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
 
     const opportunityAfter = await readOpportunity(ctx.db, fixture.opportunity.id);
@@ -282,7 +280,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -325,7 +323,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -376,7 +374,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
@@ -418,7 +416,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
 
     await expect(
       runAgent(
-        { db: ctx.db, modelClient },
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
         fosPostCallSynthesisAgentDefinition,
         buildInput(theirs),
         runContext,
@@ -468,7 +466,12 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     });
 
     await expect(
-      runAgent({ db: ctx.db, modelClient }, fosPostCallSynthesisAgentDefinition, input, runContext),
+      runAgent(
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
+        fosPostCallSynthesisAgentDefinition,
+        input,
+        runContext,
+      ),
     ).rejects.toThrow(/interaction .* is not in workspace/);
 
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
@@ -503,7 +506,12 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     });
 
     await expect(
-      runAgent({ db: ctx.db, modelClient }, fosPostCallSynthesisAgentDefinition, input, runContext),
+      runAgent(
+        { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
+        fosPostCallSynthesisAgentDefinition,
+        input,
+        runContext,
+      ),
     ).rejects.toThrow(/does not belong to opportunity/);
 
     expect(await ctx.db.select().from(artifactRecord)).toHaveLength(0);
@@ -542,7 +550,11 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
       ],
     });
     const controlResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosPostCallSynthesisAgentDefinition,
       controlInput,
       runContext,
@@ -572,7 +584,11 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
       ],
     });
     const injectedResult = await runAgent(
-      { db: ctx.db, modelClient: new FakeModelClient([validResult(scriptedOutput)]) },
+      {
+        db: ctx.db,
+        complianceReviewer: guaranteeKeywordReviewer,
+        modelClient: new FakeModelClient([validResult(scriptedOutput)]),
+      },
       fosPostCallSynthesisAgentDefinition,
       injectedInput,
       runContext,
@@ -623,7 +639,7 @@ describe("fos.post_call_synthesis (issue #68) — untrusted transcript in, propo
     };
 
     const result = await runAgent(
-      { db: ctx.db, modelClient },
+      { db: ctx.db, complianceReviewer: guaranteeKeywordReviewer, modelClient },
       fosPostCallSynthesisAgentDefinition,
       buildInput(fixture),
       runContext,
