@@ -56,6 +56,11 @@ export {
   NotImplementedGmailDraftClient,
 } from "./gmail-draft-client.js";
 export {
+  GoogleGmailDraftClient,
+  type GoogleGmailDraftClientOptions,
+  type GmailFetchLike,
+} from "./google-gmail-draft-client.js";
+export {
   executeGmailDraftCommands,
   COMMAND_TYPE as GMAIL_DRAFT_COMMAND_TYPE,
   type ExecuteGmailDraftCommandsInput,
