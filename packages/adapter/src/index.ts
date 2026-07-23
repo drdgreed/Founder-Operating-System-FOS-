@@ -49,3 +49,15 @@ export {
   type ProjectFounderInboxItemInput,
   type ProjectFounderInboxItemResult,
 } from "./project-founder-inbox-item.js";
+export {
+  type GmailDraftClient,
+  type GmailDraftInput,
+  type GmailDraftResult,
+  NotImplementedGmailDraftClient,
+} from "./gmail-draft-client.js";
+export {
+  executeGmailDraftCommands,
+  COMMAND_TYPE as GMAIL_DRAFT_COMMAND_TYPE,
+  type ExecuteGmailDraftCommandsInput,
+  type ExecuteGmailDraftCommandsResult,
+} from "./create-gmail-draft-command.js";
